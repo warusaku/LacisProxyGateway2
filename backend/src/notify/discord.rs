@@ -266,4 +266,18 @@ impl DiscordNotifier {
 
         self.send(embed).await;
     }
+
+    /// Notify configuration change (routes, settings, etc.)
+    pub async fn notify_config_change(&self, title: &str, description: &str) {
+        // Config changes always notify (no separate toggle)
+        let embed = DiscordEmbed {
+            title: format!("⚙️ {}", title),
+            description: description.to_string(),
+            color: 0x9b59b6, // Purple for config changes
+            timestamp: Utc::now().to_rfc3339(),
+            fields: vec![],
+        };
+
+        self.send(embed).await;
+    }
 }

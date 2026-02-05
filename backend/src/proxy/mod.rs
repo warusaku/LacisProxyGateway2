@@ -20,6 +20,7 @@ pub struct ProxyState {
     pub app_state: AppState,
     pub http_client: reqwest::Client,
     pub ddns_updater: Arc<DdnsUpdater>,
+    pub notifier: Arc<DiscordNotifier>,
 }
 
 impl ProxyState {
@@ -36,13 +37,14 @@ impl ProxyState {
             .build()?;
 
         // Create DDNS updater
-        let ddns_updater = Arc::new(DdnsUpdater::new(app_state.clone(), notifier));
+        let ddns_updater = Arc::new(DdnsUpdater::new(app_state.clone(), notifier.clone()));
 
         Ok(Self {
             router: Arc::new(RwLock::new(router)),
             app_state,
             http_client,
             ddns_updater,
+            notifier,
         })
     }
 

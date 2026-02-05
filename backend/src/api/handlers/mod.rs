@@ -1,5 +1,6 @@
 //! HTTP handlers module
 
+mod audit;
 mod dashboard;
 mod ddns;
 mod omada;
@@ -7,6 +8,7 @@ mod routes;
 mod security;
 mod settings;
 
+pub use self::audit::*;
 pub use self::dashboard::*;
 pub use self::ddns::*;
 pub use self::omada::*;

@@ -292,3 +292,25 @@ export const omadaApi = {
       method: 'POST',
     }),
 };
+
+// ============================================================================
+// Audit API
+// ============================================================================
+
+export interface AuditLog {
+  id: number;
+  entity_type: string;
+  entity_id: number | null;
+  action: string;
+  field_name: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string;
+  ip_address: string | null;
+  created_at: string | null;
+}
+
+export const auditApi = {
+  getLogs: (limit = 50, offset = 0) =>
+    request<AuditLog[]>(`/audit?limit=${limit}&offset=${offset}`),
+};

@@ -53,6 +53,8 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/settings/restart/trigger",
             post(handlers::trigger_manual_restart),
         )
+        // Audit
+        .route("/api/audit", get(handlers::get_audit_logs))
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/dashboard/access-log", get(handlers::get_access_log))

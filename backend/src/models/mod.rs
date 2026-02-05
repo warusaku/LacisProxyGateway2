@@ -346,3 +346,21 @@ pub struct RouteHealth {
     pub last_check: Option<DateTime<Utc>>,
     pub consecutive_failures: u32,
 }
+
+// ============================================================================
+// Audit Log Models
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AuditLog {
+    pub id: i32,
+    pub entity_type: String,
+    pub entity_id: Option<i32>,
+    pub action: String,
+    pub field_name: Option<String>,
+    pub old_value: Option<String>,
+    pub new_value: Option<String>,
+    pub changed_by: String,
+    pub ip_address: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}

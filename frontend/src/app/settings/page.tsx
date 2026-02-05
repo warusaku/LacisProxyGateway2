@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { settingsApi, RestartSettings } from '@/lib/api';
+import { settingsApi, auditApi, RestartSettings, AuditLog } from '@/lib/api';
 import type { Setting } from '@/types';
 
 interface SettingGroup {
@@ -72,9 +72,14 @@ export default function SettingsPage() {
   const [triggeringRestart, setTriggeringRestart] = useState(false);
   const [editedRestartSettings, setEditedRestartSettings] = useState<RestartSettings | null>(null);
 
+  // Audit log state
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+
   useEffect(() => {
     loadSettings();
     loadRestartSettings();
+    loadAuditLogs();
   }, []);
 
   const loadSettings = async () => {
@@ -103,6 +108,17 @@ export default function SettingsPage() {
       console.error('Failed to load restart settings:', err);
     } finally {
       setRestartLoading(false);
+    }
+  };
+
+  const loadAuditLogs = async () => {
+    try {
+      const data = await auditApi.getLogs(20);
+      setAuditLogs(data);
+    } catch (err) {
+      console.error('Failed to load audit logs:', err);
+    } finally {
+      setAuditLoading(false);
     }
   };
 
@@ -393,6 +409,78 @@ export default function SettingsPage() {
           ) : (
             <div className="text-red-400">Failed to load restart settings</div>
           )}
+        </Card>
+
+        {/* Audit Log Section */}
+        <Card title="Configuration Audit Log">
+          <p className="text-sm text-gray-400 mb-4">
+            Recent configuration changes (routes, settings, etc.)
+          </p>
+
+          {auditLoading ? (
+            <div className="text-center py-4">Loading audit logs...</div>
+          ) : auditLogs.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">No configuration changes recorded yet</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2 px-2">Time</th>
+                    <th className="text-left py-2 px-2">Type</th>
+                    <th className="text-left py-2 px-2">Action</th>
+                    <th className="text-left py-2 px-2">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                      <td className="py-2 px-2 text-gray-400 whitespace-nowrap">
+                        {log.created_at ? new Date(log.created_at).toLocaleString('ja-JP') : '-'}
+                      </td>
+                      <td className="py-2 px-2">
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          log.entity_type === 'route' ? 'bg-blue-600' :
+                          log.entity_type === 'setting' ? 'bg-purple-600' :
+                          log.entity_type === 'ddns' ? 'bg-green-600' :
+                          'bg-gray-600'
+                        }`}>
+                          {log.entity_type}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2">
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          log.action === 'create' ? 'bg-green-700' :
+                          log.action === 'update' ? 'bg-yellow-700' :
+                          log.action === 'delete' ? 'bg-red-700' :
+                          'bg-gray-600'
+                        }`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-gray-300">
+                        {log.field_name ? (
+                          <span>
+                            <span className="text-gray-500">{log.field_name}:</span>{' '}
+                            {log.old_value && <span className="text-red-400 line-through">{log.old_value}</span>}
+                            {log.old_value && log.new_value && ' → '}
+                            {log.new_value && <span className="text-green-400">{log.new_value}</span>}
+                          </span>
+                        ) : (
+                          <span>{log.new_value || log.old_value || '-'}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-4 pt-4 border-t border-border">
+            <Button variant="secondary" onClick={loadAuditLogs}>
+              Refresh
+            </Button>
+          </div>
         </Card>
       </div>
     </div>

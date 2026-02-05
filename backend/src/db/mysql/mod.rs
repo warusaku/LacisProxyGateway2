@@ -1,5 +1,6 @@
 //! MySQL database module
 
+mod audit;
 mod blocked_ips;
 mod ddns;
 mod routes;
@@ -10,6 +11,7 @@ use sqlx::MySqlPool;
 
 use crate::config::Config;
 
+pub use self::audit::*;
 pub use self::blocked_ips::*;
 pub use self::ddns::*;
 pub use self::routes::*;
