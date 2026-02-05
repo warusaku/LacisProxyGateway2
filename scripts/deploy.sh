@@ -7,7 +7,7 @@ set -e
 # Configuration
 SERVER_USER="akihabara_admin"
 SERVER_HOST="192.168.3.242"
-SERVER_DIR="/home/akihabara_admin/lacis-proxy-gateway"
+SERVER_DIR="/home/akihabara_admin/projects/lacis-proxy-gateway2"
 
 # Colors
 RED='\033[0;31m'
@@ -74,22 +74,26 @@ deploy_backend() {
 # Deploy frontend
 deploy_frontend() {
     log_info "Deploying frontend..."
-    
+
     # Sync source
     rsync -avz --delete \
         --exclude 'node_modules' \
         --exclude '.next' \
         --exclude '.git' \
         frontend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/frontend/
-    
+
     # Install dependencies and build on server
     log_info "Building frontend on server..."
     ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && npm install && npm run build"
-    
-    # Restart frontend
-    log_info "Restarting frontend..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "pkill -f 'next-server.*lacis' || true; cd ${SERVER_DIR}/frontend && nohup npm start > /tmp/lacis-frontend.log 2>&1 &"
-    
+
+    # Copy static files for standalone mode (required for Next.js standalone output)
+    log_info "Copying static files to standalone folder..."
+    ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ 2>/dev/null || true"
+
+    # Restart frontend service
+    log_info "Restarting frontend service..."
+    ssh ${SERVER_USER}@${SERVER_HOST} "sudo systemctl restart lacis-proxy-frontend || echo 'Service not configured yet'"
+
     log_info "Frontend deployed successfully!"
 }
 
@@ -98,7 +102,7 @@ show_status() {
     log_info "Checking service status..."
     ssh ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-gateway --no-pager 2>/dev/null || echo 'Backend service not configured'"
     echo ""
-    ssh ${SERVER_USER}@${SERVER_HOST} "pgrep -f 'next-server.*lacis' > /dev/null && echo 'Frontend: Running' || echo 'Frontend: Not running'"
+    ssh ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-frontend --no-pager 2>/dev/null || echo 'Frontend service not configured'"
 }
 
 # Initialize database
