@@ -75,7 +75,12 @@ INSERT INTO settings (setting_key, setting_value, description) VALUES
     ('health_check_interval_sec', '60', 'Health check interval in seconds'),
     ('health_check_timeout_ms', '5000', 'Health check timeout in milliseconds'),
     ('health_check_failure_threshold', '3', 'Consecutive failures before alert'),
-    ('access_log_retention_days', '30', 'Days to retain access logs')
+    ('access_log_retention_days', '30', 'Days to retain access logs'),
+    ('restart_scheduled_enabled', 'false', 'Enable scheduled daily restart'),
+    ('restart_scheduled_time', '04:00', 'Scheduled restart time (HH:MM, 24h format)'),
+    ('restart_auto_enabled', 'false', 'Enable auto-restart on high resource usage'),
+    ('restart_cpu_threshold', '90', 'CPU threshold percentage for auto-restart'),
+    ('restart_ram_threshold', '90', 'RAM threshold percentage for auto-restart')
 ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
 -- Insert initial proxy routes
