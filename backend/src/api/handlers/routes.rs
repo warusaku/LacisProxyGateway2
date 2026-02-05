@@ -75,6 +75,11 @@ pub async fn create_route(
         &format!("New route added: `{}` → `{}`", payload.path, payload.target),
     ).await;
 
+    // Reload proxy routes
+    if let Err(e) = state.reload_routes().await {
+        tracing::error!("Failed to reload routes after create: {}", e);
+    }
+
     tracing::info!("Created route {} -> {}", payload.path, payload.target);
 
     Ok((
@@ -154,6 +159,11 @@ pub async fn update_route(
             }
         }
 
+        // Reload proxy routes
+        if let Err(e) = state.reload_routes().await {
+            tracing::error!("Failed to reload routes after update: {}", e);
+        }
+
         tracing::info!("Updated route {}", id);
         Ok(Json(SuccessResponse::new("Route updated")))
     } else {
@@ -184,6 +194,11 @@ pub async fn delete_route(
                 "Route Deleted",
                 &format!("Route removed: `{}` → `{}`", r.path, r.target),
             ).await;
+        }
+
+        // Reload proxy routes
+        if let Err(e) = state.reload_routes().await {
+            tracing::error!("Failed to reload routes after delete: {}", e);
         }
 
         tracing::info!("Deleted route {}", id);
