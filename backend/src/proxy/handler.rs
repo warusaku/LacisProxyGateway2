@@ -34,9 +34,14 @@ pub async fn proxy_handler(
         }
     }
 
-    // Find matching route
+    // Get host header for DDNS-based routing
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok());
+
+    // Find matching route (considering host for DDNS routing)
     let router = state.router.read().await;
-    let matched_route = match router.match_route(path) {
+    let matched_route = match router.match_route(path, host) {
         Some(route) => route.clone(),
         None => {
             drop(router);

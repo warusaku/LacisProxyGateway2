@@ -8,6 +8,7 @@ export interface ProxyRoute {
   id: number;
   path: string;
   target: string;
+  ddns_config_id?: number | null;
   priority: number;
   active: boolean;
   strip_prefix: boolean;
@@ -20,6 +21,7 @@ export interface ProxyRoute {
 export interface CreateRouteRequest {
   path: string;
   target: string;
+  ddns_config_id?: number | null;
   priority?: number;
   active?: boolean;
   strip_prefix?: boolean;
@@ -30,6 +32,7 @@ export interface CreateRouteRequest {
 export interface UpdateRouteRequest {
   path?: string;
   target?: string;
+  ddns_config_id?: number | null;
   priority?: number;
   active?: boolean;
   strip_prefix?: boolean;

@@ -24,8 +24,8 @@ pub struct ProxyState {
 
 impl ProxyState {
     pub async fn new(app_state: AppState, notifier: Arc<DiscordNotifier>) -> anyhow::Result<Self> {
-        // Load initial routes from database
-        let routes = app_state.mysql.list_active_routes().await?;
+        // Load initial routes from database (with DDNS hostname info)
+        let routes = app_state.mysql.list_active_routes_with_ddns().await?;
         let router = ProxyRouter::new(routes);
 
         // Create HTTP client with sensible defaults
@@ -48,7 +48,7 @@ impl ProxyState {
 
     /// Reload routes from database
     pub async fn reload_routes(&self) -> anyhow::Result<()> {
-        let routes = self.app_state.mysql.list_active_routes().await?;
+        let routes = self.app_state.mysql.list_active_routes_with_ddns().await?;
         let count = routes.len();
         let mut router = self.router.write().await;
         *router = ProxyRouter::new(routes);

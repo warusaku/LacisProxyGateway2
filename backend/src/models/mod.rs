@@ -12,6 +12,7 @@ pub struct ProxyRoute {
     pub id: i32,
     pub path: String,
     pub target: String,
+    pub ddns_config_id: Option<i32>,
     pub priority: i32,
     pub active: bool,
     pub strip_prefix: bool,
@@ -21,10 +22,19 @@ pub struct ProxyRoute {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Extended route with DDNS hostname for routing decisions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyRouteWithDdns {
+    #[serde(flatten)]
+    pub route: ProxyRoute,
+    pub ddns_hostname: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateRouteRequest {
     pub path: String,
     pub target: String,
+    pub ddns_config_id: Option<i32>,
     #[serde(default = "default_priority")]
     pub priority: i32,
     #[serde(default = "default_true")]
@@ -41,6 +51,7 @@ pub struct CreateRouteRequest {
 pub struct UpdateRouteRequest {
     pub path: Option<String>,
     pub target: Option<String>,
+    pub ddns_config_id: Option<Option<i32>>,
     pub priority: Option<i32>,
     pub active: Option<bool>,
     pub strip_prefix: Option<bool>,

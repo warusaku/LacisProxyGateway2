@@ -7,8 +7,9 @@ USE lacis_proxy;
 -- Proxy Routes Table
 CREATE TABLE IF NOT EXISTS proxy_routes (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    path VARCHAR(255) NOT NULL UNIQUE COMMENT 'URL path (e.g., /eatyui)',
+    path VARCHAR(255) NOT NULL COMMENT 'URL path (e.g., /eatyui)',
     target VARCHAR(500) NOT NULL COMMENT 'Target URL (e.g., http://192.168.3.242:3000)',
+    ddns_config_id INT NULL COMMENT 'Optional: Route only for specific DDNS hostname',
     priority INT DEFAULT 100 COMMENT 'Lower = higher priority',
     active BOOLEAN DEFAULT TRUE,
     strip_prefix BOOLEAN DEFAULT TRUE COMMENT 'Strip matched prefix from forwarded request',
@@ -17,7 +18,10 @@ CREATE TABLE IF NOT EXISTS proxy_routes (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_path (path),
-    INDEX idx_active_priority (active, priority)
+    INDEX idx_active_priority (active, priority),
+    INDEX idx_ddns (ddns_config_id),
+    UNIQUE KEY uk_path_ddns (path, ddns_config_id),
+    FOREIGN KEY (ddns_config_id) REFERENCES ddns_configs(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- DDNS Configurations Table

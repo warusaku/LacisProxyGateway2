@@ -3,20 +3,23 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
-import { routesApi } from '@/lib/api';
-import type { ProxyRoute, CreateRouteRequest } from '@/types';
+import { routesApi, ddnsApi } from '@/lib/api';
+import type { ProxyRoute, CreateRouteRequest, DdnsConfig } from '@/types';
 
 export default function RoutesPage() {
   const [routes, setRoutes] = useState<ProxyRoute[]>([]);
+  const [ddnsConfigs, setDdnsConfigs] = useState<DdnsConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ProxyRoute | null>(null);
   const [formData, setFormData] = useState<CreateRouteRequest>({
     path: '',
     target: '',
+    ddns_config_id: null,
     priority: 100,
     active: true,
     strip_prefix: true,
@@ -26,8 +29,23 @@ export default function RoutesPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    loadRoutes();
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    try {
+      const [routesData, ddnsData] = await Promise.all([
+        routesApi.list(),
+        ddnsApi.list(),
+      ]);
+      setRoutes(routesData);
+      setDdnsConfigs(ddnsData);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadRoutes = async () => {
     try {
@@ -35,9 +53,13 @@ export default function RoutesPage() {
       setRoutes(data);
     } catch (err) {
       console.error('Failed to load routes:', err);
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const getDdnsHostname = (ddnsId: number | null | undefined) => {
+    if (!ddnsId) return null;
+    const ddns = ddnsConfigs.find((d) => d.id === ddnsId);
+    return ddns?.hostname;
   };
 
   const openCreateModal = () => {
@@ -45,6 +67,7 @@ export default function RoutesPage() {
     setFormData({
       path: '',
       target: '',
+      ddns_config_id: null,
       priority: 100,
       active: true,
       strip_prefix: true,
@@ -60,6 +83,7 @@ export default function RoutesPage() {
     setFormData({
       path: route.path,
       target: route.target,
+      ddns_config_id: route.ddns_config_id,
       priority: route.priority,
       active: route.active,
       strip_prefix: route.strip_prefix,
@@ -121,6 +145,18 @@ export default function RoutesPage() {
       render: (route: ProxyRoute) => (
         <span className="text-sm text-gray-400">{route.target}</span>
       ),
+    },
+    {
+      key: 'ddns',
+      header: 'DDNS',
+      render: (route: ProxyRoute) => {
+        const hostname = getDdnsHostname(route.ddns_config_id);
+        return hostname ? (
+          <Badge variant="info">{hostname}</Badge>
+        ) : (
+          <span className="text-gray-500 text-sm">All</span>
+        );
+      },
     },
     {
       key: 'priority',
@@ -188,6 +224,18 @@ export default function RoutesPage() {
             value={formData.target}
             onChange={(e) => setFormData({ ...formData, target: e.target.value })}
             required
+          />
+          <Select
+            label="DDNS Hostname (Optional)"
+            value={formData.ddns_config_id?.toString() || ''}
+            onChange={(e) => setFormData({
+              ...formData,
+              ddns_config_id: e.target.value ? parseInt(e.target.value) : null
+            })}
+            options={[
+              { value: '', label: 'All hosts (no restriction)' },
+              ...ddnsConfigs.map((d) => ({ value: d.id.toString(), label: d.hostname })),
+            ]}
           />
           <Input
             label="Priority"
