@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { settingsApi, auditApi, RestartSettings, AuditLog } from '@/lib/api';
+import { settingsApi, auditApi, nginxApi, RestartSettings, AuditLog, NginxStatus } from '@/lib/api';
 import type { Setting } from '@/types';
 
 interface SettingGroup {
@@ -76,10 +76,19 @@ export default function SettingsPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLoading, setAuditLoading] = useState(true);
 
+  // Nginx state
+  const [nginxStatus, setNginxStatus] = useState<NginxStatus | null>(null);
+  const [nginxLoading, setNginxLoading] = useState(true);
+  const [enablingFullProxy, setEnablingFullProxy] = useState(false);
+  const [reloadingNginx, setReloadingNginx] = useState(false);
+  const [serverName, setServerName] = useState('');
+  const [backendPort, setBackendPort] = useState('8080');
+
   useEffect(() => {
     loadSettings();
     loadRestartSettings();
     loadAuditLogs();
+    loadNginxStatus();
   }, []);
 
   const loadSettings = async () => {
@@ -119,6 +128,54 @@ export default function SettingsPage() {
       console.error('Failed to load audit logs:', err);
     } finally {
       setAuditLoading(false);
+    }
+  };
+
+  const loadNginxStatus = async () => {
+    try {
+      const data = await nginxApi.getStatus();
+      setNginxStatus(data);
+    } catch (err) {
+      console.error('Failed to load nginx status:', err);
+    } finally {
+      setNginxLoading(false);
+    }
+  };
+
+  const handleEnableFullProxy = async () => {
+    if (!serverName) {
+      alert('Please enter the server name (domain)');
+      return;
+    }
+    if (!confirm(`This will configure nginx to route ALL traffic through LacisProxyGateway2.\n\nServer: ${serverName}\nBackend Port: ${backendPort}\n\nContinue?`)) {
+      return;
+    }
+    setEnablingFullProxy(true);
+    try {
+      await nginxApi.enableFullProxy({
+        enable_full_proxy: true,
+        server_name: serverName,
+        backend_port: parseInt(backendPort) || 8080,
+      });
+      alert('Full proxy mode enabled! All routes are now managed through the UI.');
+      await loadNginxStatus();
+    } catch (err) {
+      alert('Failed to enable full proxy: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setEnablingFullProxy(false);
+    }
+  };
+
+  const handleReloadNginx = async () => {
+    setReloadingNginx(true);
+    try {
+      await nginxApi.reload();
+      alert('Nginx reloaded successfully!');
+      await loadNginxStatus();
+    } catch (err) {
+      alert('Failed to reload nginx: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setReloadingNginx(false);
     }
   };
 
@@ -274,6 +331,134 @@ export default function SettingsPage() {
             )}
           </Card>
         ))}
+
+        {/* Nginx Configuration Section */}
+        <Card title="Nginx Configuration">
+          <p className="text-sm text-gray-400 mb-4">
+            Configure nginx to route all traffic through LacisProxyGateway2. This enables full UI-based route management.
+          </p>
+
+          {nginxLoading ? (
+            <div className="text-center py-4">Loading nginx status...</div>
+          ) : nginxStatus ? (
+            <div className="space-y-6">
+              {/* Status */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-sm text-gray-400">Status</div>
+                  <div className={`font-bold ${nginxStatus.running ? 'text-green-400' : 'text-red-400'}`}>
+                    {nginxStatus.running ? 'Running' : 'Stopped'}
+                  </div>
+                </div>
+                <div className="p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-sm text-gray-400">Config Valid</div>
+                  <div className={`font-bold ${nginxStatus.config_valid ? 'text-green-400' : 'text-red-400'}`}>
+                    {nginxStatus.config_valid ? 'Valid' : 'Invalid'}
+                  </div>
+                </div>
+                <div className="p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-sm text-gray-400">Proxy Mode</div>
+                  <div className={`font-bold ${nginxStatus.proxy_mode === 'full_proxy' ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {nginxStatus.proxy_mode === 'full_proxy' ? 'Full Proxy' : 'Selective'}
+                  </div>
+                </div>
+                <div className="p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-sm text-gray-400">Config Path</div>
+                  <div className="font-mono text-xs truncate">
+                    {nginxStatus.config_path || 'Not found'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Warning for Selective Mode */}
+              {nginxStatus.proxy_mode !== 'full_proxy' && (
+                <div className="p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+                  <h4 className="font-bold text-yellow-400 mb-2">⚠️ Selective Mode Active</h4>
+                  <p className="text-sm text-gray-300 mb-3">
+                    Currently, nginx only forwards specific paths to LacisProxyGateway2. 
+                    New routes added through the UI may not work until nginx is configured for full proxy mode.
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    Enable &quot;Full Proxy Mode&quot; below to route all traffic through LacisProxyGateway2, 
+                    allowing complete UI-based route management.
+                  </p>
+                </div>
+              )}
+
+              {/* Success for Full Proxy Mode */}
+              {nginxStatus.proxy_mode === 'full_proxy' && (
+                <div className="p-4 bg-green-900/30 border border-green-600 rounded-lg">
+                  <h4 className="font-bold text-green-400 mb-2">✓ Full Proxy Mode Active</h4>
+                  <p className="text-sm text-gray-300">
+                    All traffic is routed through LacisProxyGateway2. 
+                    You can manage all routes through the Routes page.
+                  </p>
+                </div>
+              )}
+
+              {/* Enable Full Proxy Form */}
+              {nginxStatus.proxy_mode !== 'full_proxy' && (
+                <div className="p-4 bg-gray-800/50 rounded-lg">
+                  <h3 className="text-lg font-medium mb-3">Enable Full Proxy Mode</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="text-sm text-gray-400 block mb-1">Server Name (Domain)</label>
+                      <Input
+                        type="text"
+                        value={serverName}
+                        onChange={(e) => setServerName(e.target.value)}
+                        placeholder="akbdevs.dnsalias.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-400 block mb-1">Backend Port</label>
+                      <Input
+                        type="number"
+                        value={backendPort}
+                        onChange={(e) => setBackendPort(e.target.value)}
+                        placeholder="8080"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleEnableFullProxy}
+                    loading={enablingFullProxy}
+                    disabled={!serverName}
+                  >
+                    Enable Full Proxy Mode
+                  </Button>
+                </div>
+              )}
+
+              {/* Reload Button */}
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={handleReloadNginx}
+                  loading={reloadingNginx}
+                >
+                  Reload Nginx
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={loadNginxStatus}
+                >
+                  Refresh Status
+                </Button>
+              </div>
+
+              {/* Error Display */}
+              {nginxStatus.error && (
+                <div className="p-4 bg-red-900/30 border border-red-600 rounded-lg">
+                  <h4 className="font-bold text-red-400 mb-2">Error</h4>
+                  <pre className="text-sm text-gray-300 whitespace-pre-wrap">{nginxStatus.error}</pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-red-400">Failed to load nginx status</div>
+          )}
+        </Card>
 
         {/* Restart Scheduler Section */}
         <Card title="Restart Scheduler">

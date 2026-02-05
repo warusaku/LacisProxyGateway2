@@ -37,6 +37,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
 
+# URL parsing
+url = "2"
+
 # Error handling
 thiserror = "1"
 anyhow = "1"

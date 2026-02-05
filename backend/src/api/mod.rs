@@ -72,4 +72,10 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Omada
         .route("/api/omada/status", get(handlers::get_network_status))
         .route("/api/omada/test", post(handlers::test_connection))
+        // Nginx management
+        .route("/api/nginx/status", get(handlers::get_nginx_status))
+        .route("/api/nginx/config", get(handlers::get_nginx_config))
+        .route("/api/nginx/enable-full-proxy", post(handlers::enable_full_proxy))
+        .route("/api/nginx/reload", post(handlers::reload_nginx_handler))
+        .route("/api/nginx/test", post(handlers::test_nginx_config_handler))
 }

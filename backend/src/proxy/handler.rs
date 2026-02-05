@@ -202,10 +202,39 @@ pub async fn proxy_handler(
         StatusCode::from_u16(upstream_status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut builder = Response::builder().status(axum_status);
 
+    // Determine original path prefix for Location header rewriting
+    let original_prefix = if matched_route.strip_prefix {
+        Some(matched_route.path.trim_end_matches('/').to_string())
+    } else {
+        None
+    };
+
+    // Get the scheme and host for building absolute URLs
+    let request_scheme = proto;
+    let request_host = host.unwrap_or("");
+
     for (key, value) in response_headers.iter() {
         if is_hop_by_hop_header(key.as_str()) {
             continue;
         }
+
+        // Rewrite Location header for redirects
+        if key.as_str().eq_ignore_ascii_case("location") {
+            if let Ok(location_str) = value.to_str() {
+                let rewritten = rewrite_location_header(
+                    location_str,
+                    &matched_route.target,
+                    original_prefix.as_deref(),
+                    request_scheme,
+                    request_host,
+                );
+                if let Ok(v) = axum::http::HeaderValue::from_str(&rewritten) {
+                    builder = builder.header(key.as_str(), v);
+                }
+                continue;
+            }
+        }
+
         if let Ok(v) = axum::http::HeaderValue::from_bytes(value.as_bytes()) {
             builder = builder.header(key.as_str(), v);
         }
@@ -267,6 +296,65 @@ fn is_hop_by_hop_header(name: &str) -> bool {
             | "transfer-encoding"
             | "upgrade"
     )
+}
+
+/// Rewrite Location header for redirect responses
+/// 
+/// When a backend returns a redirect to an absolute path (e.g., `/login`),
+/// we need to prepend the original route prefix (e.g., `/paraclate/login`)
+/// so the client is redirected to the correct proxied path.
+fn rewrite_location_header(
+    location: &str,
+    target_base: &str,
+    original_prefix: Option<&str>,
+    request_scheme: &str,
+    request_host: &str,
+) -> String {
+    // Parse the target base URL to extract host/scheme
+    let target_parsed = url::Url::parse(target_base);
+
+    // Case 1: Absolute URL (starts with http:// or https://)
+    if location.starts_with("http://") || location.starts_with("https://") {
+        if let Ok(loc_url) = url::Url::parse(location) {
+            // Check if this URL points to our backend
+            if let Ok(ref target_url) = target_parsed {
+                if loc_url.host_str() == target_url.host_str() {
+                    // Rewrite to point to our proxy
+                    let path = loc_url.path();
+                    let query = loc_url.query().map(|q| format!("?{}", q)).unwrap_or_default();
+                    
+                    let new_path = if let Some(prefix) = original_prefix {
+                        format!("{}{}{}", prefix, path, query)
+                    } else {
+                        format!("{}{}", path, query)
+                    };
+
+                    if !request_host.is_empty() {
+                        return format!("{}://{}{}", request_scheme, request_host, new_path);
+                    } else {
+                        return new_path;
+                    }
+                }
+            }
+        }
+        // Not pointing to our backend, pass through unchanged
+        return location.to_string();
+    }
+
+    // Case 2: Absolute path (starts with /)
+    if location.starts_with('/') {
+        if let Some(prefix) = original_prefix {
+            // Don't add prefix if location already starts with it
+            if location.starts_with(prefix) {
+                return location.to_string();
+            }
+            return format!("{}{}", prefix, location);
+        }
+        return location.to_string();
+    }
+
+    // Case 3: Relative path - pass through unchanged
+    location.to_string()
 }
 
 /// Log access to MongoDB

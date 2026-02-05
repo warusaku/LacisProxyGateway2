@@ -314,3 +314,49 @@ export const auditApi = {
   getLogs: (limit = 50, offset = 0) =>
     request<AuditLog[]>(`/audit?limit=${limit}&offset=${offset}`),
 };
+
+// ============================================================================
+// Nginx API
+// ============================================================================
+
+export interface NginxStatus {
+  running: boolean;
+  config_valid: boolean;
+  proxy_mode: string; // "selective" or "full_proxy"
+  config_path: string | null;
+  last_reload: string | null;
+  error: string | null;
+}
+
+export interface NginxConfig {
+  path: string;
+  content: string;
+}
+
+export interface EnableFullProxyRequest {
+  enable_full_proxy: boolean;
+  backend_port?: number;
+  server_name?: string;
+}
+
+export const nginxApi = {
+  getStatus: () => request<NginxStatus>('/nginx/status'),
+
+  getConfig: () => request<NginxConfig>('/nginx/config'),
+
+  enableFullProxy: (data: EnableFullProxyRequest) =>
+    request<SuccessResponse>('/nginx/enable-full-proxy', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  reload: () =>
+    request<SuccessResponse>('/nginx/reload', {
+      method: 'POST',
+    }),
+
+  test: () =>
+    request<{ valid: boolean; error: string | null }>('/nginx/test', {
+      method: 'POST',
+    }),
+};

@@ -86,5 +86,6 @@ ON DUPLICATE KEY UPDATE setting_key = setting_key;
 -- Insert initial proxy routes
 INSERT INTO proxy_routes (path, target, priority, active, strip_prefix) VALUES
     ('/eatyui', 'http://192.168.3.242:3000', 10, TRUE, TRUE),
-    ('/sorapiapps', 'http://192.168.3.241', 20, TRUE, TRUE)
+    ('/sorapiapps', 'http://192.168.3.241', 20, TRUE, TRUE),
+    ('/paraclate', 'http://192.168.125.246:3000', 30, TRUE, TRUE)
 ON DUPLICATE KEY UPDATE target = VALUES(target);

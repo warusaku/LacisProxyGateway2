@@ -3,6 +3,7 @@
 mod audit;
 mod dashboard;
 mod ddns;
+mod nginx;
 mod omada;
 mod routes;
 mod security;
@@ -11,6 +12,7 @@ mod settings;
 pub use self::audit::*;
 pub use self::dashboard::*;
 pub use self::ddns::*;
+pub use self::nginx::*;
 pub use self::omada::*;
 pub use self::routes::*;
 pub use self::security::*;
