@@ -155,6 +155,59 @@ export interface SslStatus {
   next_renewal_attempt?: string;
 }
 
+export interface ServerHealth {
+  hostname: string;
+  os: string;
+  kernel: string;
+  uptime: string;
+  uptime_seconds: number;
+  load_average: {
+    one_min: number;
+    five_min: number;
+    fifteen_min: number;
+  };
+  cpu: {
+    model: string;
+    cores: number;
+    usage_percent: number;
+  };
+  memory: {
+    total_mb: number;
+    used_mb: number;
+    free_mb: number;
+    available_mb: number;
+    usage_percent: number;
+  };
+  swap: {
+    total_mb: number;
+    used_mb: number;
+    free_mb: number;
+    usage_percent: number;
+  };
+  disk: Array<{
+    mount_point: string;
+    filesystem: string;
+    total_gb: number;
+    used_gb: number;
+    free_gb: number;
+    usage_percent: number;
+  }>;
+  network: {
+    interfaces: Array<{
+      name: string;
+      ip?: string;
+      rx_bytes: number;
+      tx_bytes: number;
+    }>;
+    connections: number;
+  };
+  processes: {
+    total: number;
+    running: number;
+    sleeping: number;
+  };
+}
+
 export const dashboardApi = {
   getStats: () => request<DashboardStats>('/dashboard/stats'),
 
@@ -174,6 +227,8 @@ export const dashboardApi = {
   getStatusDistribution: () => request<StatusDistribution[]>('/dashboard/status-distribution'),
 
   getSslStatus: () => request<SslStatus>('/dashboard/ssl-status'),
+
+  getServerHealth: () => request<ServerHealth>('/dashboard/server-health'),
 };
 
 // ============================================================================

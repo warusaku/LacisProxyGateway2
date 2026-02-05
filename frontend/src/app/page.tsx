@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
-import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus } from '@/lib/api';
+import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
 import type { DashboardStats, RouteHealth, AccessLog } from '@/types';
 
 export default function Dashboard() {
@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [network, setNetwork] = useState<NetworkStatus | null>(null);
   const [ssl, setSsl] = useState<SslStatus | null>(null);
+  const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,18 +25,20 @@ export default function Dashboard() {
 
   const loadDashboard = async () => {
     try {
-      const [statsData, healthData, logsData, networkData, sslData] = await Promise.all([
+      const [statsData, healthData, logsData, networkData, sslData, serverHealthData] = await Promise.all([
         dashboardApi.getStats(),
         dashboardApi.getHealth(),
         dashboardApi.getAccessLog(20),
         omadaApi.getStatus().catch(() => null),
         dashboardApi.getSslStatus().catch(() => null),
+        dashboardApi.getServerHealth().catch(() => null),
       ]);
       setStats(statsData);
       setHealth(healthData);
       setLogs(logsData);
       setNetwork(networkData);
       setSsl(sslData);
+      setServerHealth(serverHealthData);
     } catch (err) {
       console.error('Failed to load dashboard:', err);
     } finally {
@@ -258,6 +261,176 @@ export default function Dashboard() {
           </Card>
         )}
       </div>
+
+      {/* Server Health */}
+      {serverHealth && (
+        <Card title="Server Health" className="mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* System Info */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">System</h4>
+              <div className="text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Hostname</span>
+                  <span className="font-mono">{serverHealth.hostname}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">OS</span>
+                  <span className="text-xs">{serverHealth.os}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Kernel</span>
+                  <span className="font-mono text-xs">{serverHealth.kernel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Uptime</span>
+                  <span className="text-green-400 font-bold">{serverHealth.uptime}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* CPU */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">CPU</h4>
+              <div className="text-sm">
+                <div className="text-xs text-gray-400 truncate mb-1">{serverHealth.cpu.model}</div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-400">Cores</span>
+                  <span>{serverHealth.cpu.cores}</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-400">Usage</span>
+                  <span className={`font-bold ${
+                    serverHealth.cpu.usage_percent > 80 ? 'text-red-400' :
+                    serverHealth.cpu.usage_percent > 50 ? 'text-yellow-400' : 'text-green-400'
+                  }`}>{serverHealth.cpu.usage_percent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${
+                      serverHealth.cpu.usage_percent > 80 ? 'bg-red-500' :
+                      serverHealth.cpu.usage_percent > 50 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(serverHealth.cpu.usage_percent, 100)}%` }}
+                  ></div>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Load: {serverHealth.load_average.one_min.toFixed(2)} / {serverHealth.load_average.five_min.toFixed(2)} / {serverHealth.load_average.fifteen_min.toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            {/* Memory */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">Memory</h4>
+              <div className="text-sm">
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-400">Used / Total</span>
+                  <span>{(serverHealth.memory.used_mb / 1024).toFixed(1)}GB / {(serverHealth.memory.total_mb / 1024).toFixed(1)}GB</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-gray-400">Usage</span>
+                  <span className={`font-bold ${
+                    serverHealth.memory.usage_percent > 80 ? 'text-red-400' :
+                    serverHealth.memory.usage_percent > 60 ? 'text-yellow-400' : 'text-green-400'
+                  }`}>{serverHealth.memory.usage_percent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${
+                      serverHealth.memory.usage_percent > 80 ? 'bg-red-500' :
+                      serverHealth.memory.usage_percent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(serverHealth.memory.usage_percent, 100)}%` }}
+                  ></div>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Available: {(serverHealth.memory.available_mb / 1024).toFixed(1)}GB
+                </div>
+                {serverHealth.swap.total_mb > 0 && (
+                  <div className="text-xs text-gray-500">
+                    Swap: {(serverHealth.swap.used_mb / 1024).toFixed(1)}GB / {(serverHealth.swap.total_mb / 1024).toFixed(1)}GB ({serverHealth.swap.usage_percent.toFixed(0)}%)
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Disk */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">Storage</h4>
+              <div className="text-sm space-y-2">
+                {serverHealth.disk.map((disk, i) => (
+                  <div key={i}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-gray-400 font-mono">{disk.mount_point}</span>
+                      <span className={`font-bold ${
+                        disk.usage_percent > 90 ? 'text-red-400' :
+                        disk.usage_percent > 70 ? 'text-yellow-400' : 'text-green-400'
+                      }`}>{disk.usage_percent.toFixed(0)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          disk.usage_percent > 90 ? 'bg-red-500' :
+                          disk.usage_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'
+                        }`}
+                        style={{ width: `${Math.min(disk.usage_percent, 100)}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {disk.used_gb.toFixed(0)}GB / {disk.total_gb.toFixed(0)}GB
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Network & Processes Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 pt-4 border-t border-gray-700">
+            {/* Network */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">Network</h4>
+              <div className="text-sm">
+                <div className="flex justify-between mb-2">
+                  <span className="text-gray-400">Active Connections</span>
+                  <span className="font-bold text-blue-400">{serverHealth.network.connections}</span>
+                </div>
+                <div className="space-y-1">
+                  {serverHealth.network.interfaces.map((iface, i) => (
+                    <div key={i} className="flex justify-between text-xs">
+                      <span className="text-gray-400 font-mono">{iface.name}</span>
+                      <span>{iface.ip || 'N/A'}</span>
+                      <span className="text-gray-500">
+                        RX: {(iface.rx_bytes / 1024 / 1024 / 1024).toFixed(1)}GB / TX: {(iface.tx_bytes / 1024 / 1024 / 1024).toFixed(1)}GB
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Processes */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase">Processes</h4>
+              <div className="text-sm flex gap-6">
+                <div>
+                  <div className="text-2xl font-bold">{serverHealth.processes.total}</div>
+                  <div className="text-xs text-gray-400">Total</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-green-400">{serverHealth.processes.running}</div>
+                  <div className="text-xs text-gray-400">Running</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-blue-400">{serverHealth.processes.sleeping}</div>
+                  <div className="text-xs text-gray-400">Sleeping</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
