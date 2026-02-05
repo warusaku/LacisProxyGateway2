@@ -120,9 +120,9 @@ pub async fn proxy_handler(
     let timeout = std::time::Duration::from_millis(matched_route.timeout_ms as u64);
     request_builder = request_builder.timeout(timeout);
 
-    // Send request body
+    // Send request body (50MB limit)
     let body = req.into_body();
-    let body_bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(body, 50 * 1024 * 1024).await {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::error!("Failed to read request body: {}", e);
