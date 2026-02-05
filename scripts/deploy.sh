@@ -8,6 +8,12 @@ set -e
 SERVER_USER="akihabara_admin"
 SERVER_HOST="192.168.3.242"
 SERVER_DIR="/home/akihabara_admin/projects/lacis-proxy-gateway2"
+SERVER_PASS="akihabara12345@@@"
+
+# SSH/SCP with sshpass
+SSH_CMD="sshpass -p '${SERVER_PASS}' ssh -o StrictHostKeyChecking=no"
+SCP_CMD="sshpass -p '${SERVER_PASS}' scp -o StrictHostKeyChecking=no"
+RSYNC_CMD="sshpass -p '${SERVER_PASS}' rsync"
 
 # Colors
 RED='\033[0;31m'
@@ -53,21 +59,22 @@ check_git_status() {
 # Deploy backend
 deploy_backend() {
     log_info "Deploying backend..."
-    
+
     # Sync source
-    rsync -avz --delete \
+    ${RSYNC_CMD} -avz --delete \
         --exclude 'target' \
         --exclude '.git' \
+        -e "ssh -o StrictHostKeyChecking=no" \
         backend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/backend/
-    
+
     # Build on server
     log_info "Building backend on server..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/backend && ~/.cargo/bin/cargo build --release"
-    
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/backend && ~/.cargo/bin/cargo build --release"
+
     # Restart service
     log_info "Restarting backend service..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "sudo systemctl restart lacis-proxy-gateway || echo 'Service not configured yet'"
-    
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "sudo systemctl restart lacis-proxy-gateway || echo 'Service not configured yet'"
+
     log_info "Backend deployed successfully!"
 }
 
@@ -76,23 +83,24 @@ deploy_frontend() {
     log_info "Deploying frontend..."
 
     # Sync source
-    rsync -avz --delete \
+    ${RSYNC_CMD} -avz --delete \
         --exclude 'node_modules' \
         --exclude '.next' \
         --exclude '.git' \
+        -e "ssh -o StrictHostKeyChecking=no" \
         frontend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/frontend/
 
     # Install dependencies and build on server
     log_info "Building frontend on server..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && npm install && npm run build"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && npm install && npm run build"
 
     # Copy static files for standalone mode (required for Next.js standalone output)
     log_info "Copying static files to standalone folder..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ 2>/dev/null || true"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_DIR}/frontend && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ 2>/dev/null || true"
 
     # Restart frontend service
     log_info "Restarting frontend service..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "sudo systemctl restart lacis-proxy-frontend || echo 'Service not configured yet'"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "sudo systemctl restart lacis-proxy-frontend || echo 'Service not configured yet'"
 
     log_info "Frontend deployed successfully!"
 }
@@ -100,9 +108,9 @@ deploy_frontend() {
 # Show status
 show_status() {
     log_info "Checking service status..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-gateway --no-pager 2>/dev/null || echo 'Backend service not configured'"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-gateway --no-pager 2>/dev/null || echo 'Backend service not configured'"
     echo ""
-    ssh ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-frontend --no-pager 2>/dev/null || echo 'Frontend service not configured'"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "systemctl status lacis-proxy-frontend --no-pager 2>/dev/null || echo 'Frontend service not configured'"
 }
 
 # Initialize database
@@ -110,14 +118,14 @@ init_database() {
     log_info "Initializing database..."
 
     # Create remote scripts directory
-    ssh ${SERVER_USER}@${SERVER_HOST} "mkdir -p ${SERVER_DIR}/scripts"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "mkdir -p ${SERVER_DIR}/scripts"
 
     # Copy SQL script
-    scp scripts/init_mysql.sql ${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/scripts/
+    ${SCP_CMD} scripts/init_mysql.sql ${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/scripts/
 
     # Run MySQL init
     log_info "Running MySQL initialization..."
-    ssh ${SERVER_USER}@${SERVER_HOST} "mariadb -u akihabara_admin -p'akihabara12345@' < ${SERVER_DIR}/scripts/init_mysql.sql"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "mariadb -u akihabara_admin -p'akihabara12345@' < ${SERVER_DIR}/scripts/init_mysql.sql"
 
     log_info "Database initialized successfully"
 }
@@ -127,7 +135,7 @@ setup_systemd() {
     log_info "Setting up systemd service..."
 
     # Create systemd service file
-    ssh ${SERVER_USER}@${SERVER_HOST} "sudo tee /etc/systemd/system/lacis-proxy-gateway.service > /dev/null << 'EOFSERVICE'
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "sudo tee /etc/systemd/system/lacis-proxy-gateway.service > /dev/null << 'EOFSERVICE'
 [Unit]
 Description=LacisProxyGateway2 Reverse Proxy
 After=network.target mariadb.service mongod.service
@@ -145,8 +153,8 @@ Environment=RUST_LOG=info
 WantedBy=multi-user.target
 EOFSERVICE"
 
-    ssh ${SERVER_USER}@${SERVER_HOST} "sudo systemctl daemon-reload"
-    ssh ${SERVER_USER}@${SERVER_HOST} "sudo systemctl enable lacis-proxy-gateway"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "sudo systemctl daemon-reload"
+    ${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} "sudo systemctl enable lacis-proxy-gateway"
 
     log_info "Systemd service configured"
 }
