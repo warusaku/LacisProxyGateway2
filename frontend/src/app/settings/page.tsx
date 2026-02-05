@@ -83,6 +83,8 @@ export default function SettingsPage() {
   const [reloadingNginx, setReloadingNginx] = useState(false);
   const [serverName, setServerName] = useState('');
   const [backendPort, setBackendPort] = useState('8080');
+  const [bodySize, setBodySize] = useState('50M');
+  const [updatingBodySize, setUpdatingBodySize] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -135,10 +137,28 @@ export default function SettingsPage() {
     try {
       const data = await nginxApi.getStatus();
       setNginxStatus(data);
+      if (data.client_max_body_size) {
+        setBodySize(data.client_max_body_size);
+      }
     } catch (err) {
       console.error('Failed to load nginx status:', err);
     } finally {
       setNginxLoading(false);
+    }
+  };
+
+  const handleUpdateBodySize = async () => {
+    if (!bodySize) return;
+    setUpdatingBodySize(true);
+    try {
+      await nginxApi.updateBodySize(bodySize);
+      await loadNginxStatus();
+      alert('File size limit updated successfully');
+    } catch (err) {
+      console.error('Failed to update body size:', err);
+      alert('Failed to update file size limit');
+    } finally {
+      setUpdatingBodySize(false);
     }
   };
 
@@ -429,6 +449,43 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               )}
+
+              {/* File Size Limit */}
+              <div className="p-4 bg-gray-800/50 rounded-lg">
+                <h3 className="text-lg font-medium mb-3">Upload File Size Limit</h3>
+                <p className="text-sm text-gray-400 mb-3">
+                  Maximum file size for uploads (e.g., Excel files). Prevents 413 Request Entity Too Large errors.
+                </p>
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1 max-w-xs">
+                    <label className="text-sm text-gray-400 block mb-1">Max Body Size</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        value={bodySize}
+                        onChange={(e) => setBodySize(e.target.value.toUpperCase())}
+                        placeholder="50M"
+                        className="font-mono"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Examples: 10M, 50M, 100M, 1G (K=KB, M=MB, G=GB)
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleUpdateBodySize}
+                    loading={updatingBodySize}
+                    disabled={!bodySize}
+                  >
+                    Update Limit
+                  </Button>
+                </div>
+                {nginxStatus?.client_max_body_size && (
+                  <p className="text-sm text-green-400 mt-2">
+                    Current: {nginxStatus.client_max_body_size}
+                  </p>
+                )}
+              </div>
 
               {/* Reload Button */}
               <div className="flex gap-3">

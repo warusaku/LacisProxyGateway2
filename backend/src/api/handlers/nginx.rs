@@ -28,6 +28,7 @@ pub struct NginxStatus {
     pub config_path: Option<String>,
     pub last_reload: Option<String>,
     pub error: Option<String>,
+    pub client_max_body_size: Option<String>,
 }
 
 /// Nginx config update request
@@ -46,6 +47,7 @@ pub async fn get_nginx_status(
     let (config_valid, error) = test_nginx_config().await;
     let proxy_mode = detect_proxy_mode().await;
     let config_path = find_config_path().await;
+    let client_max_body_size = get_client_max_body_size().await;
 
     Ok(Json(NginxStatus {
         running,
@@ -54,6 +56,7 @@ pub async fn get_nginx_status(
         config_path,
         last_reload: None,
         error,
+        client_max_body_size,
     }))
 }
 
@@ -233,6 +236,7 @@ async fn detect_proxy_mode() -> String {
 async fn find_config_path() -> Option<String> {
     // Check common locations
     let candidates = [
+        format!("{}/eatyui", NGINX_SITES_AVAILABLE),
         format!("{}/lacis-proxy", NGINX_SITES_AVAILABLE),
         format!("{}/lacis-proxy-gateway", NGINX_SITES_AVAILABLE),
         format!("{}/default", NGINX_SITES_AVAILABLE),
@@ -245,6 +249,141 @@ async fn find_config_path() -> Option<String> {
         }
     }
     None
+}
+
+async fn get_client_max_body_size() -> Option<String> {
+    if let Some(config_path) = find_config_path().await {
+        if let Ok(content) = fs::read_to_string(&config_path).await {
+            // Parse client_max_body_size from config
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("client_max_body_size") {
+                    // Extract value like "50M" from "client_max_body_size 50M;"
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let value = parts[1].trim_end_matches(';');
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Request to update client_max_body_size
+#[derive(Deserialize)]
+pub struct UpdateBodySizeRequest {
+    pub size: String, // e.g., "50M", "100M", "1G"
+}
+
+/// PUT /api/nginx/body-size - Update client_max_body_size
+pub async fn update_body_size(
+    State(state): State<ProxyState>,
+    Json(payload): Json<UpdateBodySizeRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // Validate size format (e.g., 50M, 100M, 1G)
+    let size = payload.size.trim().to_uppercase();
+    if !size.chars().last().map(|c| c == 'M' || c == 'G' || c == 'K').unwrap_or(false) {
+        return Err(AppError::BadRequest("Size must end with K, M, or G (e.g., 50M, 1G)".to_string()));
+    }
+    let numeric_part = &size[..size.len()-1];
+    if numeric_part.parse::<u32>().is_err() {
+        return Err(AppError::BadRequest("Invalid size format".to_string()));
+    }
+
+    let config_path = find_config_path().await
+        .ok_or_else(|| AppError::NotFound("Nginx config not found".to_string()))?;
+
+    let content = fs::read_to_string(&config_path).await
+        .map_err(|e| AppError::InternalError(format!("Failed to read config: {}", e)))?;
+
+    // Update or add client_max_body_size in each location block
+    let mut new_content = String::new();
+    let mut in_location_block = false;
+    let mut brace_count = 0;
+    let mut has_body_size = false;
+    let mut pending_body_size_insert = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        
+        // Track if we're entering a location block
+        if trimmed.starts_with("location ") {
+            in_location_block = true;
+            has_body_size = false;
+            pending_body_size_insert = true;
+        }
+        
+        // Track braces
+        if in_location_block {
+            brace_count += line.matches('{').count() as i32;
+            brace_count -= line.matches('}').count() as i32;
+            
+            if brace_count == 0 {
+                in_location_block = false;
+            }
+        }
+        
+        // Replace existing client_max_body_size
+        if trimmed.starts_with("client_max_body_size") {
+            new_content.push_str(&format!("        client_max_body_size {};\n", size));
+            has_body_size = true;
+            pending_body_size_insert = false;
+            continue;
+        }
+        
+        // Add client_max_body_size after location line with opening brace
+        if pending_body_size_insert && trimmed.contains('{') {
+            new_content.push_str(line);
+            new_content.push('\n');
+            new_content.push_str(&format!("        client_max_body_size {};\n", size));
+            pending_body_size_insert = false;
+            continue;
+        }
+        
+        new_content.push_str(line);
+        new_content.push('\n');
+    }
+
+    // Write updated config using sudo
+    let output = Command::new("sudo")
+        .args(["tee", &config_path])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(new_content.as_bytes())?;
+            }
+            child.wait_with_output()
+        })
+        .map_err(|e| AppError::InternalError(format!("Failed to write config: {}", e)))?;
+
+    if !output.status.success() {
+        return Err(AppError::InternalError("Failed to write nginx config".to_string()));
+    }
+
+    // Test and reload nginx
+    let (valid, error) = test_nginx_config().await;
+    if !valid {
+        return Err(AppError::BadRequest(format!(
+            "Nginx config test failed: {}",
+            error.unwrap_or_default()
+        )));
+    }
+
+    reload_nginx().await?;
+
+    state.notifier.notify_config_change(
+        "Nginx Body Size Updated",
+        &format!("client_max_body_size changed to {}", size),
+    ).await;
+
+    tracing::info!("Updated client_max_body_size to {}", size);
+
+    Ok(Json(SuccessResponse::new(&format!("Body size limit updated to {}", size))))
 }
 
 fn generate_full_proxy_config(server_name: &str, backend_port: u16) -> String {

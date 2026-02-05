@@ -78,4 +78,5 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/nginx/enable-full-proxy", post(handlers::enable_full_proxy))
         .route("/api/nginx/reload", post(handlers::reload_nginx_handler))
         .route("/api/nginx/test", post(handlers::test_nginx_config_handler))
+        .route("/api/nginx/body-size", put(handlers::update_body_size))
 }

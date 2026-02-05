@@ -326,6 +326,7 @@ export interface NginxStatus {
   config_path: string | null;
   last_reload: string | null;
   error: string | null;
+  client_max_body_size: string | null;
 }
 
 export interface NginxConfig {
@@ -358,5 +359,11 @@ export const nginxApi = {
   test: () =>
     request<{ valid: boolean; error: string | null }>('/nginx/test', {
       method: 'POST',
+    }),
+
+  updateBodySize: (size: string) =>
+    request<SuccessResponse>('/nginx/body-size', {
+      method: 'PUT',
+      body: JSON.stringify({ size }),
     }),
 };

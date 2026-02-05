@@ -233,11 +233,20 @@ pub async fn update_restart_settings(
     Ok(Json(SuccessResponse::new("Restart settings updated")))
 }
 
-/// POST /api/settings/restart/trigger - Manually trigger restart
+/// Service restart request
+#[derive(Debug, Deserialize)]
+pub struct RestartServiceRequest {
+    /// Which service to restart: "backend", "frontend", "all"
+    pub service: Option<String>,
+}
+
+/// POST /api/settings/restart/trigger - Manually trigger service restart
 pub async fn trigger_manual_restart(
     State(state): State<ProxyState>,
+    Json(payload): Json<RestartServiceRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    tracing::warn!("Manual restart triggered via API");
+    let service = payload.service.as_deref().unwrap_or("backend");
+    tracing::warn!("Manual restart triggered via API for service: {}", service);
 
     // Send Discord notification
     if let Ok(Some(webhook_url)) = state.app_state.mysql.get_discord_webhook_url().await {
@@ -246,8 +255,8 @@ pub async fn trigger_manual_restart(
             .post(&webhook_url)
             .json(&serde_json::json!({
                 "embeds": [{
-                    "title": "Manual Restart Triggered",
-                    "description": "System restart initiated via management UI",
+                    "title": "Service Restart Triggered",
+                    "description": format!("Service restart initiated: {}", service),
                     "color": 15105570,
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                     "footer": {"text": "LacisProxyGateway2"}
@@ -258,12 +267,36 @@ pub async fn trigger_manual_restart(
     }
 
     // Execute restart in background
-    tokio::spawn(async {
+    let service_name = service.to_string();
+    tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        let _ = std::process::Command::new("sudo")
-            .args(["systemctl", "reboot"])
-            .output();
+        
+        match service_name.as_str() {
+            "backend" => {
+                let _ = std::process::Command::new("systemctl")
+                    .args(["--user", "restart", "lacis-proxy-gateway"])
+                    .output()
+                    .or_else(|_| {
+                        std::process::Command::new("sudo")
+                            .args(["systemctl", "restart", "lacis-proxy-gateway"])
+                            .output()
+                    });
+            }
+            "frontend" => {
+                let _ = std::process::Command::new("sudo")
+                    .args(["systemctl", "restart", "lacis-proxy-frontend"])
+                    .output();
+            }
+            "all" => {
+                let _ = std::process::Command::new("sudo")
+                    .args(["systemctl", "restart", "lacis-proxy-gateway", "lacis-proxy-frontend"])
+                    .output();
+            }
+            _ => {
+                tracing::error!("Unknown service: {}", service_name);
+            }
+        }
     });
 
-    Ok(Json(SuccessResponse::new("Restart initiated")))
+    Ok(Json(SuccessResponse::new(&format!("Restart initiated for: {}", service))))
 }
