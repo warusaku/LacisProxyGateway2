@@ -1,0 +1,163 @@
+// LacisProxyGateway2 API Client
+
+import type {
+  ProxyRoute,
+  CreateRouteRequest,
+  UpdateRouteRequest,
+  DdnsConfig,
+  CreateDdnsRequest,
+  UpdateDdnsRequest,
+  BlockedIp,
+  BlockIpRequest,
+  SecurityEvent,
+  Setting,
+  DashboardStats,
+  RouteHealth,
+  AccessLog,
+  StatusDistribution,
+  SuccessResponse,
+} from '@/types';
+
+const API_BASE = '/LacisProxyGateway2/api';
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// Routes API
+// ============================================================================
+
+export const routesApi = {
+  list: () => request<ProxyRoute[]>('/routes'),
+
+  get: (id: number) => request<ProxyRoute>(`/routes/${id}`),
+
+  create: (data: CreateRouteRequest) =>
+    request<SuccessResponse>('/routes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: UpdateRouteRequest) =>
+    request<SuccessResponse>(`/routes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: number) =>
+    request<SuccessResponse>(`/routes/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
+// ============================================================================
+// DDNS API
+// ============================================================================
+
+export const ddnsApi = {
+  list: () => request<DdnsConfig[]>('/ddns'),
+
+  get: (id: number) => request<DdnsConfig>(`/ddns/${id}`),
+
+  create: (data: CreateDdnsRequest) =>
+    request<SuccessResponse>('/ddns', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: UpdateDdnsRequest) =>
+    request<SuccessResponse>(`/ddns/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: number) =>
+    request<SuccessResponse>(`/ddns/${id}`, {
+      method: 'DELETE',
+    }),
+
+  triggerUpdate: (id: number) =>
+    request<SuccessResponse>(`/ddns/${id}/update`, {
+      method: 'POST',
+    }),
+};
+
+// ============================================================================
+// Security API
+// ============================================================================
+
+export const securityApi = {
+  listBlockedIps: () => request<BlockedIp[]>('/security/blocked-ips'),
+
+  blockIp: (data: BlockIpRequest) =>
+    request<SuccessResponse>('/security/blocked-ips', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  unblockIp: (id: number) =>
+    request<SuccessResponse>(`/security/blocked-ips/${id}`, {
+      method: 'DELETE',
+    }),
+
+  listEvents: (limit = 50, offset = 0) =>
+    request<SecurityEvent[]>(`/security/events?limit=${limit}&offset=${offset}`),
+
+  getEventsByIp: (ip: string) => request<SecurityEvent[]>(`/security/events/ip/${ip}`),
+};
+
+// ============================================================================
+// Settings API
+// ============================================================================
+
+export const settingsApi = {
+  list: () => request<Setting[]>('/settings'),
+
+  update: (key: string, value: string | null) =>
+    request<SuccessResponse>(`/settings/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+
+  testDiscord: () =>
+    request<SuccessResponse>('/settings/test-discord', {
+      method: 'POST',
+    }),
+};
+
+// ============================================================================
+// Dashboard API
+// ============================================================================
+
+export const dashboardApi = {
+  getStats: () => request<DashboardStats>('/dashboard/stats'),
+
+  getAccessLog: (limit = 50, offset = 0) =>
+    request<AccessLog[]>(`/dashboard/access-log?limit=${limit}&offset=${offset}`),
+
+  getFilteredAccessLog: (params: { limit?: number; path?: string; ip?: string }) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', params.limit.toString());
+    if (params.path) query.set('path', params.path);
+    if (params.ip) query.set('ip', params.ip);
+    return request<AccessLog[]>(`/dashboard/access-log/filter?${query}`);
+  },
+
+  getHealth: () => request<RouteHealth[]>('/dashboard/health'),
+
+  getStatusDistribution: () => request<StatusDistribution[]>('/dashboard/status-distribution'),
+};

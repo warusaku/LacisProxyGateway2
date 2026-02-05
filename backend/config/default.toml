@@ -1,0 +1,15 @@
+# LacisProxyGateway2 Configuration
+
+[server]
+host = "0.0.0.0"
+port = 8081
+
+[database]
+# MySQL connection URL (required)
+mysql_url = "mysql://akihabara_admin:akihabara12345%40@localhost/lacis_proxy"
+
+# MongoDB connection URL (required)
+mongodb_url = "mongodb://localhost:27017"
+
+# [discord]
+# webhook_url = "https://discord.com/api/webhooks/..."
