@@ -8,12 +8,12 @@ set -e
 SERVER_USER="akihabara_admin"
 SERVER_HOST="192.168.3.242"
 SERVER_DIR="/home/akihabara_admin/projects/lacis-proxy-gateway2"
-SERVER_PASS="akihabara12345@@@"
+export SSHPASS='akihabara12345@@@'
 
-# SSH/SCP with sshpass
-SSH_CMD="sshpass -p '${SERVER_PASS}' ssh -o StrictHostKeyChecking=no"
-SCP_CMD="sshpass -p '${SERVER_PASS}' scp -o StrictHostKeyChecking=no"
-RSYNC_CMD="sshpass -p '${SERVER_PASS}' rsync"
+# SSH/SCP with sshpass (using SSHPASS env var)
+SSH_CMD="sshpass -e ssh -o StrictHostKeyChecking=no"
+SCP_CMD="sshpass -e scp -o StrictHostKeyChecking=no"
+RSYNC_CMD="sshpass -e rsync"
 
 # Colors
 RED='\033[0;31m'
