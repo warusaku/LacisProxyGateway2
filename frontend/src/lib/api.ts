@@ -124,6 +124,22 @@ export const securityApi = {
 // Settings API
 // ============================================================================
 
+export interface RestartSettings {
+  scheduled_enabled: boolean;
+  scheduled_time: string;
+  auto_restart_enabled: boolean;
+  cpu_threshold: number;
+  ram_threshold: number;
+}
+
+export interface UpdateRestartSettingsRequest {
+  scheduled_enabled?: boolean;
+  scheduled_time?: string;
+  auto_restart_enabled?: boolean;
+  cpu_threshold?: number;
+  ram_threshold?: number;
+}
+
 export const settingsApi = {
   list: () => request<Setting[]>('/settings'),
 
@@ -135,6 +151,19 @@ export const settingsApi = {
 
   testDiscord: () =>
     request<SuccessResponse>('/settings/test-discord', {
+      method: 'POST',
+    }),
+
+  getRestartSettings: () => request<RestartSettings>('/settings/restart'),
+
+  updateRestartSettings: (data: UpdateRestartSettingsRequest) =>
+    request<SuccessResponse>('/settings/restart', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  triggerRestart: () =>
+    request<SuccessResponse>('/settings/restart/trigger', {
       method: 'POST',
     }),
 };

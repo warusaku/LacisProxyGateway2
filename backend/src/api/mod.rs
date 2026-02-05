@@ -46,6 +46,13 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/settings/test-discord",
             post(handlers::test_discord_notification),
         )
+        // Restart settings
+        .route("/api/settings/restart", get(handlers::get_restart_settings))
+        .route("/api/settings/restart", put(handlers::update_restart_settings))
+        .route(
+            "/api/settings/restart/trigger",
+            post(handlers::trigger_manual_restart),
+        )
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/dashboard/access-log", get(handlers::get_access_log))

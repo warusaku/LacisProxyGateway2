@@ -13,6 +13,7 @@ mod models;
 mod notify;
 mod omada;
 mod proxy;
+mod restart;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ use crate::ddns::DdnsUpdater;
 use crate::health::HealthChecker;
 use crate::notify::DiscordNotifier;
 use crate::proxy::ProxyState;
+use crate::restart::RestartScheduler;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -91,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Start background tasks (DDNS updater, health checker)
+/// Start background tasks (DDNS updater, health checker, restart scheduler)
 fn start_background_tasks(
     app_state: AppState,
     notifier: Arc<DiscordNotifier>,
@@ -103,9 +105,15 @@ fn start_background_tasks(
     });
 
     // Health checker
-    let health_checker = Arc::new(HealthChecker::new(app_state, notifier));
+    let health_checker = Arc::new(HealthChecker::new(app_state.clone(), notifier));
     tokio::spawn(async move {
         health_checker.start().await;
+    });
+
+    // Restart scheduler
+    let restart_scheduler = Arc::new(RestartScheduler::new(app_state.mysql.clone()));
+    tokio::spawn(async move {
+        restart_scheduler.start_monitoring().await;
     });
 
     tracing::info!("Background tasks started");
