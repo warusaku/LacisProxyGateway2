@@ -143,6 +143,18 @@ export const settingsApi = {
 // Dashboard API
 // ============================================================================
 
+export interface SslStatus {
+  enabled: boolean;
+  domain?: string;
+  issuer?: string;
+  valid_from?: string;
+  valid_until?: string;
+  days_remaining?: number;
+  auto_renew: boolean;
+  last_renewal?: string;
+  next_renewal_attempt?: string;
+}
+
 export const dashboardApi = {
   getStats: () => request<DashboardStats>('/dashboard/stats'),
 
@@ -160,4 +172,39 @@ export const dashboardApi = {
   getHealth: () => request<RouteHealth[]>('/dashboard/health'),
 
   getStatusDistribution: () => request<StatusDistribution[]>('/dashboard/status-distribution'),
+
+  getSslStatus: () => request<SslStatus>('/dashboard/ssl-status'),
+};
+
+// ============================================================================
+// Omada API
+// ============================================================================
+
+export interface OmadaDevice {
+  mac: string;
+  name: string;
+  type: string;
+  model?: string;
+  ip?: string;
+  status: number; // 0=offline, 1=online
+  firmwareVersion?: string;
+}
+
+export interface NetworkStatus {
+  gateway_online: boolean;
+  gateway_ip?: string;
+  wan_ip?: string;
+  devices: OmadaDevice[];
+  port_forwarding: unknown[];
+  configured: boolean;
+  error?: string;
+}
+
+export const omadaApi = {
+  getStatus: () => request<NetworkStatus>('/omada/status'),
+
+  testConnection: () =>
+    request<{ success: boolean; message: string; devices?: number }>('/omada/test', {
+      method: 'POST',
+    }),
 };

@@ -58,4 +58,8 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/dashboard/status-distribution",
             get(handlers::get_status_distribution),
         )
+        .route("/api/dashboard/ssl-status", get(handlers::get_ssl_status))
+        // Omada
+        .route("/api/omada/status", get(handlers::get_network_status))
+        .route("/api/omada/test", post(handlers::test_connection))
 }

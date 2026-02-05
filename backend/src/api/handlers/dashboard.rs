@@ -135,6 +135,20 @@ pub struct LogFilterQuery {
     pub ip: Option<String>,
 }
 
+/// SSL Certificate Status
+#[derive(Debug, Serialize)]
+pub struct SslStatus {
+    pub enabled: bool,
+    pub domain: Option<String>,
+    pub issuer: Option<String>,
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    pub days_remaining: Option<i64>,
+    pub auto_renew: bool,
+    pub last_renewal: Option<String>,
+    pub next_renewal_attempt: Option<String>,
+}
+
 fn default_limit() -> i64 {
     50
 }
@@ -165,4 +179,118 @@ pub async fn get_filtered_access_log(
     };
 
     Ok(Json(logs))
+}
+
+/// GET /api/dashboard/ssl-status - Get SSL certificate status
+pub async fn get_ssl_status() -> impl IntoResponse {
+    let cert_path = "/etc/letsencrypt/live/akbdevs.dnsalias.com/fullchain.pem";
+    let renewal_conf_path = "/etc/letsencrypt/renewal/akbdevs.dnsalias.com.conf";
+
+    // Check if SSL is configured
+    let ssl_enabled = std::path::Path::new(cert_path).exists();
+
+    if !ssl_enabled {
+        return Json(SslStatus {
+            enabled: false,
+            domain: None,
+            issuer: None,
+            valid_from: None,
+            valid_until: None,
+            days_remaining: None,
+            auto_renew: false,
+            last_renewal: None,
+            next_renewal_attempt: None,
+        });
+    }
+
+    // Parse certificate using openssl command
+    let cert_info = std::process::Command::new("openssl")
+        .args(["x509", "-in", cert_path, "-noout", "-dates", "-issuer", "-subject"])
+        .output();
+
+    let mut domain = Some("akbdevs.dnsalias.com".to_string());
+    let mut issuer = None;
+    let mut valid_from = None;
+    let mut valid_until = None;
+    let mut days_remaining = None;
+
+    if let Ok(output) = cert_info {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("notBefore=") {
+                valid_from = Some(line.replace("notBefore=", ""));
+            } else if line.starts_with("notAfter=") {
+                valid_until = Some(line.replace("notAfter=", ""));
+            } else if line.starts_with("issuer=") {
+                // Extract CN from issuer
+                if let Some(cn_part) = line.split("CN = ").nth(1) {
+                    issuer = Some(cn_part.split(',').next().unwrap_or(cn_part).to_string());
+                }
+            } else if line.starts_with("subject=") {
+                // Extract CN from subject for domain
+                if let Some(cn_part) = line.split("CN = ").nth(1) {
+                    domain = Some(cn_part.split(',').next().unwrap_or(cn_part).to_string());
+                }
+            }
+        }
+    }
+
+    // Calculate days remaining
+    if let Some(ref until) = valid_until {
+        let end_date = std::process::Command::new("date")
+            .args(["-d", until, "+%s"])
+            .output();
+        let now = std::process::Command::new("date").args(["+%s"]).output();
+
+        if let (Ok(end_out), Ok(now_out)) = (end_date, now) {
+            let end_secs: i64 = String::from_utf8_lossy(&end_out.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            let now_secs: i64 = String::from_utf8_lossy(&now_out.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            if end_secs > 0 && now_secs > 0 {
+                days_remaining = Some((end_secs - now_secs) / 86400);
+            }
+        }
+    }
+
+    // Check auto-renew status (certbot timer)
+    let auto_renew = std::process::Command::new("systemctl")
+        .args(["is-active", "certbot.timer"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
+        .unwrap_or(false);
+
+    // Get last renewal from renewal conf modification time
+    let last_renewal = std::fs::metadata(renewal_conf_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(|t| {
+            let datetime: chrono::DateTime<chrono::Utc> = t.into();
+            datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+        });
+
+    // Next renewal attempt (certbot renews 30 days before expiry)
+    let next_renewal_attempt = days_remaining.map(|days| {
+        if days > 30 {
+            format!("{} days until renewal window", days - 30)
+        } else {
+            "In renewal window (will renew on next check)".to_string()
+        }
+    });
+
+    Json(SslStatus {
+        enabled: true,
+        domain,
+        issuer,
+        valid_from,
+        valid_until,
+        days_remaining,
+        auto_renew,
+        last_renewal,
+        next_renewal_attempt,
+    })
 }

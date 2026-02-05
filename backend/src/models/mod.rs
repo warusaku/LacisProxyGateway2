@@ -75,9 +75,7 @@ fn default_timeout() -> i32 {
 // DDNS Models
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "VARCHAR")]
-#[sqlx(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DdnsProvider {
     #[serde(rename = "dyndns")]
     DynDns,
@@ -97,9 +95,19 @@ impl std::fmt::Display for DdnsProvider {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "VARCHAR")]
-#[sqlx(rename_all = "lowercase")]
+impl std::str::FromStr for DdnsProvider {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "dyndns" => Ok(DdnsProvider::DynDns),
+            "noip" => Ok(DdnsProvider::NoIp),
+            "cloudflare" => Ok(DdnsProvider::Cloudflare),
+            _ => Err(format!("Unknown provider: {}", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DdnsStatus {
     #[serde(rename = "active")]
     Active,
@@ -109,7 +117,38 @@ pub enum DdnsStatus {
     Disabled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+impl std::str::FromStr for DdnsStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "active" => Ok(DdnsStatus::Active),
+            "error" => Ok(DdnsStatus::Error),
+            "disabled" => Ok(DdnsStatus::Disabled),
+            _ => Err(format!("Unknown status: {}", s)),
+        }
+    }
+}
+
+/// Raw DDNS config from database (uses String for enum fields)
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DdnsConfigRow {
+    pub id: i32,
+    pub provider: String,
+    pub hostname: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub api_token: Option<String>,
+    pub zone_id: Option<String>,
+    pub update_interval_sec: i32,
+    pub last_ip: Option<String>,
+    pub last_update: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DdnsConfig {
     pub id: i32,
     pub provider: DdnsProvider,
@@ -125,6 +164,29 @@ pub struct DdnsConfig {
     pub status: DdnsStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<DdnsConfigRow> for DdnsConfig {
+    type Error = String;
+
+    fn try_from(row: DdnsConfigRow) -> Result<Self, Self::Error> {
+        Ok(DdnsConfig {
+            id: row.id,
+            provider: row.provider.parse()?,
+            hostname: row.hostname,
+            username: row.username,
+            password: row.password,
+            api_token: row.api_token,
+            zone_id: row.zone_id,
+            update_interval_sec: row.update_interval_sec,
+            last_ip: row.last_ip,
+            last_update: row.last_update,
+            last_error: row.last_error,
+            status: row.status.parse()?,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

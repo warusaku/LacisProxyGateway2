@@ -11,6 +11,7 @@ mod error;
 mod health;
 mod models;
 mod notify;
+mod omada;
 mod proxy;
 
 use std::net::SocketAddr;

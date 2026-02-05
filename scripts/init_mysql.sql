@@ -4,6 +4,25 @@
 CREATE DATABASE IF NOT EXISTS lacis_proxy CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE lacis_proxy;
 
+-- DDNS Configurations Table (must be created before proxy_routes due to foreign key)
+CREATE TABLE IF NOT EXISTS ddns_configs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    provider ENUM('dyndns', 'noip', 'cloudflare') NOT NULL,
+    hostname VARCHAR(255) NOT NULL COMMENT 'DDNS hostname',
+    username VARCHAR(255) COMMENT 'Auth username (encrypted)',
+    password VARCHAR(500) COMMENT 'Auth password (encrypted)',
+    api_token VARCHAR(500) COMMENT 'API token for Cloudflare (encrypted)',
+    zone_id VARCHAR(100) COMMENT 'Cloudflare zone ID',
+    update_interval_sec INT DEFAULT 300 COMMENT 'Update interval in seconds',
+    last_ip VARCHAR(45) COMMENT 'Last known IP address',
+    last_update TIMESTAMP NULL COMMENT 'Last successful update',
+    last_error TEXT COMMENT 'Last error message if any',
+    status ENUM('active', 'error', 'disabled') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_provider_hostname (provider, hostname)
+) ENGINE=InnoDB;
+
 -- Proxy Routes Table
 CREATE TABLE IF NOT EXISTS proxy_routes (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -22,25 +41,6 @@ CREATE TABLE IF NOT EXISTS proxy_routes (
     INDEX idx_ddns (ddns_config_id),
     UNIQUE KEY uk_path_ddns (path, ddns_config_id),
     FOREIGN KEY (ddns_config_id) REFERENCES ddns_configs(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
-
--- DDNS Configurations Table
-CREATE TABLE IF NOT EXISTS ddns_configs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    provider ENUM('dyndns', 'noip', 'cloudflare') NOT NULL,
-    hostname VARCHAR(255) NOT NULL COMMENT 'DDNS hostname',
-    username VARCHAR(255) COMMENT 'Auth username (encrypted)',
-    password VARCHAR(500) COMMENT 'Auth password (encrypted)',
-    api_token VARCHAR(500) COMMENT 'API token for Cloudflare (encrypted)',
-    zone_id VARCHAR(100) COMMENT 'Cloudflare zone ID',
-    update_interval_sec INT DEFAULT 300 COMMENT 'Update interval in seconds',
-    last_ip VARCHAR(45) COMMENT 'Last known IP address',
-    last_update TIMESTAMP NULL COMMENT 'Last successful update',
-    last_error TEXT COMMENT 'Last error message if any',
-    status ENUM('active', 'error', 'disabled') DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_provider_hostname (provider, hostname)
 ) ENGINE=InnoDB;
 
 -- Blocked IPs Table

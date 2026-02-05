@@ -2,12 +2,14 @@
 
 mod dashboard;
 mod ddns;
+mod omada;
 mod routes;
 mod security;
 mod settings;
 
 pub use self::dashboard::*;
 pub use self::ddns::*;
+pub use self::omada::*;
 pub use self::routes::*;
 pub use self::security::*;
 pub use self::settings::*;

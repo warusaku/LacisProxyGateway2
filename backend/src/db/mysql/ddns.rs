@@ -4,14 +4,14 @@ use chrono::Utc;
 use sqlx::Row;
 
 use crate::error::AppError;
-use crate::models::{CreateDdnsRequest, DdnsConfig, DdnsStatus, UpdateDdnsRequest};
+use crate::models::{CreateDdnsRequest, DdnsConfig, DdnsConfigRow, DdnsStatus, UpdateDdnsRequest};
 
 use super::MySqlDb;
 
 impl MySqlDb {
     /// Get all DDNS configurations
     pub async fn list_ddns(&self) -> Result<Vec<DdnsConfig>, AppError> {
-        let configs = sqlx::query_as::<_, DdnsConfig>(
+        let rows = sqlx::query_as::<_, DdnsConfigRow>(
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
@@ -23,12 +23,13 @@ impl MySqlDb {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(configs)
+        let configs: Result<Vec<DdnsConfig>, _> = rows.into_iter().map(DdnsConfig::try_from).collect();
+        configs.map_err(|e| AppError::InternalError(e))
     }
 
     /// Get active DDNS configurations
     pub async fn list_active_ddns(&self) -> Result<Vec<DdnsConfig>, AppError> {
-        let configs = sqlx::query_as::<_, DdnsConfig>(
+        let rows = sqlx::query_as::<_, DdnsConfigRow>(
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
@@ -41,12 +42,13 @@ impl MySqlDb {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(configs)
+        let configs: Result<Vec<DdnsConfig>, _> = rows.into_iter().map(DdnsConfig::try_from).collect();
+        configs.map_err(|e| AppError::InternalError(e))
     }
 
     /// Get a single DDNS configuration by ID
     pub async fn get_ddns(&self, id: i32) -> Result<Option<DdnsConfig>, AppError> {
-        let config = sqlx::query_as::<_, DdnsConfig>(
+        let row = sqlx::query_as::<_, DdnsConfigRow>(
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
@@ -59,7 +61,10 @@ impl MySqlDb {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(config)
+        match row {
+            Some(r) => Ok(Some(DdnsConfig::try_from(r).map_err(|e| AppError::InternalError(e))?)),
+            None => Ok(None),
+        }
     }
 
     /// Create a new DDNS configuration
