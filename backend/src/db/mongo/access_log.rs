@@ -13,6 +13,16 @@ use crate::models::{
 
 use super::MongoDb;
 
+/// Extract integer count from BSON document (handles both Int32 and Int64)
+fn bson_to_u64(doc: &bson::Document, key: &str) -> u64 {
+    match doc.get(key) {
+        Some(bson::Bson::Int32(v)) => *v as u64,
+        Some(bson::Bson::Int64(v)) => *v as u64,
+        Some(bson::Bson::Double(v)) => *v as u64,
+        _ => 0,
+    }
+}
+
 impl MongoDb {
     /// Log an access event
     pub async fn log_access(&self, log: &AccessLog) -> Result<(), AppError> {
@@ -172,8 +182,10 @@ impl MongoDb {
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?
         {
-            if let (Ok(status), Ok(count)) = (doc.get_i32("_id"), doc.get_i64("count")) {
-                distribution.push((status, count as u64));
+            let status = doc.get_i32("_id").unwrap_or(0);
+            let count = bson_to_u64(&doc, "count");
+            if status > 0 {
+                distribution.push((status, count));
             }
         }
 
@@ -479,8 +491,8 @@ impl MongoDb {
             // _id is "2026-02-06T22" (first 13 chars), append ":00:00Z" for full ISO format
             let hour_prefix = doc.get_str("_id").unwrap_or("");
             let hour = format!("{}:00:00Z", hour_prefix);
-            let total_requests = doc.get_i64("total_requests").unwrap_or(0) as u64;
-            let error_count = doc.get_i64("error_count").unwrap_or(0) as u64;
+            let total_requests = bson_to_u64(&doc, "total_requests");
+            let error_count = bson_to_u64(&doc, "error_count");
             let avg_response_time_ms = doc.get_f64("avg_response_time_ms").unwrap_or(0.0);
 
             stats.push(HourlyStat {
@@ -539,8 +551,8 @@ impl MongoDb {
             .map_err(|e| AppError::InternalError(e.to_string()))?
         {
             let key = doc.get_str("_id").unwrap_or("").to_string();
-            let count = doc.get_i64("count").unwrap_or(0) as u64;
-            let error_count = doc.get_i64("error_count").unwrap_or(0) as u64;
+            let count = bson_to_u64(&doc, "count");
+            let error_count = bson_to_u64(&doc, "error_count");
             entries.push(TopEntry {
                 key,
                 count,
@@ -596,8 +608,8 @@ impl MongoDb {
             .map_err(|e| AppError::InternalError(e.to_string()))?
         {
             let key = doc.get_str("_id").unwrap_or("").to_string();
-            let count = doc.get_i64("count").unwrap_or(0) as u64;
-            let error_count = doc.get_i64("error_count").unwrap_or(0) as u64;
+            let count = bson_to_u64(&doc, "count");
+            let error_count = bson_to_u64(&doc, "error_count");
             entries.push(TopEntry {
                 key,
                 count,
@@ -663,7 +675,7 @@ impl MongoDb {
             .map_err(|e| AppError::InternalError(e.to_string()))?
         {
             let status = doc.get_i32("_id").unwrap_or(0);
-            let count = doc.get_i64("count").unwrap_or(0) as u64;
+            let count = bson_to_u64(&doc, "count");
 
             // Extract top 3 paths
             let mut paths = Vec::new();
