@@ -47,6 +47,10 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
             "/api/security/events/ip/:ip",
             get(handlers::get_security_events_by_ip),
         )
+        .route(
+            "/api/security/events/search",
+            get(handlers::search_security_events),
+        )
         // Settings
         .route("/api/settings", get(handlers::list_settings))
         .route("/api/settings/:key", put(handlers::update_setting))
@@ -70,10 +74,28 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
             "/api/dashboard/access-log/filter",
             get(handlers::get_filtered_access_log),
         )
+        .route(
+            "/api/dashboard/access-log/search",
+            get(handlers::search_access_log),
+        )
+        .route(
+            "/api/dashboard/access-log/export",
+            get(handlers::export_access_log),
+        )
         .route("/api/dashboard/health", get(handlers::get_health_status))
         .route(
             "/api/dashboard/status-distribution",
             get(handlers::get_status_distribution),
+        )
+        .route(
+            "/api/dashboard/hourly-stats",
+            get(handlers::get_hourly_stats),
+        )
+        .route("/api/dashboard/top-ips", get(handlers::get_top_ips))
+        .route("/api/dashboard/top-paths", get(handlers::get_top_paths))
+        .route(
+            "/api/dashboard/error-summary",
+            get(handlers::get_error_summary),
         )
         .route("/api/dashboard/ssl-status", get(handlers::get_ssl_status))
         .route("/api/dashboard/server-health", get(handlers::get_server_health))

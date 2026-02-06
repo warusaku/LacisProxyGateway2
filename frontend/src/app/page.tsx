@@ -5,7 +5,8 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
 import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
-import type { DashboardStats, RouteHealth, AccessLog } from '@/types';
+import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution } from '@/types';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -14,6 +15,10 @@ export default function Dashboard() {
   const [network, setNetwork] = useState<NetworkStatus | null>(null);
   const [ssl, setSsl] = useState<SslStatus | null>(null);
   const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
+  const [hourlyStats, setHourlyStats] = useState<HourlyStat[]>([]);
+  const [statusDist, setStatusDist] = useState<StatusDistribution[]>([]);
+  const [topIps, setTopIps] = useState<TopEntry[]>([]);
+  const [topPaths, setTopPaths] = useState<TopEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,6 +44,19 @@ export default function Dashboard() {
       setNetwork(networkData);
       setSsl(sslData);
       setServerHealth(serverHealthData);
+
+      // Load analytics data (non-blocking)
+      Promise.all([
+        dashboardApi.getHourlyStats().catch(() => []),
+        dashboardApi.getStatusDistribution().catch(() => []),
+        dashboardApi.getTopIps(undefined, undefined, 10).catch(() => []),
+        dashboardApi.getTopPaths(undefined, undefined, 10).catch(() => []),
+      ]).then(([hourly, dist, ips, paths]) => {
+        setHourlyStats(hourly);
+        setStatusDist(dist);
+        setTopIps(ips);
+        setTopPaths(paths);
+      });
     } catch (err) {
       console.error('Failed to load dashboard:', err);
     } finally {
@@ -453,6 +471,108 @@ export default function Dashboard() {
         <Card className="text-center">
           <div className="text-3xl font-bold text-green-400">{stats ? formatUptime(stats.uptime_seconds) : '-'}</div>
           <div className="text-sm text-gray-400">Uptime</div>
+        </Card>
+      </div>
+
+      {/* Charts: Request Timeline & Status Distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Request Timeline Chart */}
+        <Card title="Request Timeline (24h)" className="lg:col-span-2">
+          {hourlyStats.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={hourlyStats}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis
+                  dataKey="hour"
+                  stroke="#666"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v: string) => v ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                />
+                <YAxis stroke="#666" tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                  labelFormatter={(v) => typeof v === 'string' && v ? new Date(v).toLocaleString() : ''}
+                />
+                <Line type="monotone" dataKey="total_requests" stroke="#3b82f6" name="Total" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="error_count" stroke="#ef4444" name="Errors" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[250px] text-gray-500">No data</div>
+          )}
+        </Card>
+
+        {/* Status Code Distribution Pie Chart */}
+        <Card title="Status Distribution">
+          {statusDist.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie
+                  data={statusDist.map(d => ({ name: `${d.status}`, value: d.count }))}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  dataKey="value"
+                  label={({ name, percent }: { name?: string; percent?: number }) => `${name || ''} (${((percent || 0) * 100).toFixed(0)}%)`}
+                >
+                  {statusDist.map((d, i) => {
+                    const color = d.status >= 500 ? '#ef4444' : d.status >= 400 ? '#eab308' : d.status >= 300 ? '#3b82f6' : '#10b981';
+                    return <Cell key={i} fill={color} />;
+                  })}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[250px] text-gray-500">No data</div>
+          )}
+        </Card>
+      </div>
+
+      {/* Top IPs & Top Paths */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <Card title="Top IPs (24h)">
+          <div className="space-y-2">
+            {topIps.length > 0 ? topIps.map((entry, i) => (
+              <div key={entry.key} className="flex items-center justify-between text-sm py-1 border-b border-gray-800 last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-6 text-right">{i + 1}.</span>
+                  <code className="text-blue-400">{entry.key}</code>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span>{entry.count.toLocaleString()} req</span>
+                  {entry.error_count > 0 && (
+                    <span className="text-red-400">{entry.error_count} err</span>
+                  )}
+                </div>
+              </div>
+            )) : (
+              <div className="text-gray-500 text-sm">No data</div>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Top Paths (24h)">
+          <div className="space-y-2">
+            {topPaths.length > 0 ? topPaths.map((entry, i) => (
+              <div key={entry.key} className="flex items-center justify-between text-sm py-1 border-b border-gray-800 last:border-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-gray-500 w-6 text-right flex-shrink-0">{i + 1}.</span>
+                  <code className="text-blue-400 truncate">{entry.key}</code>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <span>{entry.count.toLocaleString()} req</span>
+                  {entry.error_count > 0 && (
+                    <span className="text-red-400">{entry.error_count} err</span>
+                  )}
+                </div>
+              </div>
+            )) : (
+              <div className="text-gray-500 text-sm">No data</div>
+            )}
+          </div>
         </Card>
       </div>
 

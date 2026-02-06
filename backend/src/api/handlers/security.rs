@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::error::AppError;
-use crate::models::BlockIpRequest;
+use crate::models::{BlockIpRequest, SecurityEventSearchQuery};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -116,6 +116,19 @@ pub async fn get_security_events_by_ip(
         .app_state
         .mongo
         .get_security_events_by_ip(&ip, 100)
+        .await?;
+    Ok(Json(events))
+}
+
+/// GET /api/security/events/search - Advanced security event search
+pub async fn search_security_events(
+    State(state): State<ProxyState>,
+    Query(query): Query<SecurityEventSearchQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let events = state
+        .app_state
+        .mongo
+        .search_security_events(&query)
         .await?;
     Ok(Json(events))
 }

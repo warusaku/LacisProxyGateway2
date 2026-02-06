@@ -2,11 +2,11 @@
 
 use chrono::Utc;
 use futures::TryStreamExt;
-use mongodb::bson::{self, doc};
+use mongodb::bson::{self, doc, DateTime as BsonDateTime};
 use mongodb::options::FindOptions;
 
 use crate::error::AppError;
-use crate::models::{SecurityEvent, SecurityEventType, Severity};
+use crate::models::{SecurityEvent, SecurityEventSearchQuery, SecurityEventType, Severity};
 
 use super::MongoDb;
 
@@ -270,5 +270,78 @@ impl MongoDb {
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// Advanced search: time range + severity + event_type + ip
+    pub async fn search_security_events(
+        &self,
+        query: &SecurityEventSearchQuery,
+    ) -> Result<Vec<SecurityEvent>, AppError> {
+        let collection = self.db.collection::<bson::Document>("security_events");
+
+        let mut filter = doc! {};
+
+        // Time range
+        let mut time_filter = doc! {};
+        if let Some(from) = query.from {
+            time_filter.insert(
+                "$gte",
+                BsonDateTime::from_millis(from.timestamp_millis()),
+            );
+        }
+        if let Some(to) = query.to {
+            time_filter.insert(
+                "$lte",
+                BsonDateTime::from_millis(to.timestamp_millis()),
+            );
+        }
+        if !time_filter.is_empty() {
+            filter.insert("timestamp", time_filter);
+        }
+
+        // Severity
+        if let Some(ref severity) = query.severity {
+            if !severity.is_empty() {
+                filter.insert("severity", severity.as_str());
+            }
+        }
+
+        // Event type
+        if let Some(ref event_type) = query.event_type {
+            if !event_type.is_empty() {
+                filter.insert("event_type", event_type.as_str());
+            }
+        }
+
+        // IP
+        if let Some(ref ip) = query.ip {
+            if !ip.is_empty() {
+                filter.insert("ip", ip.as_str());
+            }
+        }
+
+        let options = FindOptions::builder()
+            .sort(doc! { "timestamp": -1 })
+            .skip(query.offset as u64)
+            .limit(query.limit)
+            .build();
+
+        let mut cursor = collection
+            .find(filter, options)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        let mut events = Vec::new();
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?
+        {
+            if let Ok(event) = bson::from_document(doc) {
+                events.push(event);
+            }
+        }
+
+        Ok(events)
     }
 }

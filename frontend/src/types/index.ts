@@ -179,6 +179,56 @@ export interface StatusDistribution {
 }
 
 // ============================================================================
+// Advanced Search & Analytics
+// ============================================================================
+
+export interface HourlyStat {
+  hour: string;
+  total_requests: number;
+  error_count: number;
+  avg_response_time_ms: number;
+}
+
+export interface TopEntry {
+  key: string;
+  count: number;
+  error_count: number;
+}
+
+export interface ErrorSummary {
+  status: number;
+  count: number;
+  paths: string[];
+}
+
+export interface AccessLogSearchResult {
+  logs: AccessLog[];
+  total: number;
+}
+
+export interface AccessLogSearchParams {
+  from?: string;
+  to?: string;
+  method?: string;
+  status_min?: number;
+  status_max?: number;
+  ip?: string;
+  path?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SecurityEventSearchParams {
+  from?: string;
+  to?: string;
+  severity?: string;
+  event_type?: string;
+  ip?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// ============================================================================
 // API Response
 // ============================================================================
 

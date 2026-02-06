@@ -361,6 +361,74 @@ pub struct RouteStats {
 }
 
 // ============================================================================
+// Access Log Search Models
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct AccessLogSearchQuery {
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub method: Option<String>,
+    pub status_min: Option<i32>,
+    pub status_max: Option<i32>,
+    pub ip: Option<String>,
+    pub path: Option<String>,
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_search_limit() -> i64 {
+    50
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccessLogSearchResult {
+    pub logs: Vec<AccessLog>,
+    pub total: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HourlyStat {
+    pub hour: String,
+    pub total_requests: u64,
+    pub error_count: u64,
+    pub avg_response_time_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TopEntry {
+    pub key: String,
+    pub count: u64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorSummary {
+    pub status: i32,
+    pub count: u64,
+    pub paths: Vec<String>,
+}
+
+// ============================================================================
+// Security Event Search Models
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct SecurityEventSearchQuery {
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub severity: Option<String>,
+    pub event_type: Option<String>,
+    pub ip: Option<String>,
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+// ============================================================================
 // Audit Log Models
 // ============================================================================
 

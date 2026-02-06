@@ -2,13 +2,15 @@
 
 use axum::{
     extract::{Query, State},
+    http::{header, StatusCode},
     response::IntoResponse,
     Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
-use crate::models::{DashboardStats, RouteHealth};
+use crate::models::{AccessLogSearchQuery, DashboardStats, RouteHealth};
 use crate::proxy::ProxyState;
 
 use super::security::PaginationQuery;
@@ -805,4 +807,194 @@ pub async fn get_server_health() -> impl IntoResponse {
         network,
         processes,
     })
+}
+
+// ============================================================================
+// Advanced search & analytics endpoints
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct TimeRangeQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// GET /api/dashboard/access-log/search - Advanced log search
+pub async fn search_access_log(
+    State(state): State<ProxyState>,
+    Query(query): Query<AccessLogSearchQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let result = state
+        .app_state
+        .mongo
+        .search_access_logs(&query)
+        .await?;
+
+    Ok(Json(result))
+}
+
+/// GET /api/dashboard/hourly-stats - Hourly aggregation
+pub async fn get_hourly_stats(
+    State(state): State<ProxyState>,
+    Query(query): Query<TimeRangeQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let from = query
+        .from
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::hours(24));
+    let to = query
+        .to
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(Utc::now);
+
+    let stats = state
+        .app_state
+        .mongo
+        .get_hourly_stats(from, to)
+        .await?;
+
+    Ok(Json(stats))
+}
+
+/// GET /api/dashboard/top-ips - Top IPs by request count
+pub async fn get_top_ips(
+    State(state): State<ProxyState>,
+    Query(query): Query<TimeRangeQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let from = query
+        .from
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::hours(24));
+    let to = query
+        .to
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(Utc::now);
+    let limit = query.limit.unwrap_or(20);
+
+    let entries = state
+        .app_state
+        .mongo
+        .get_top_ips(from, to, limit)
+        .await?;
+
+    Ok(Json(entries))
+}
+
+/// GET /api/dashboard/top-paths - Top paths by request count
+pub async fn get_top_paths(
+    State(state): State<ProxyState>,
+    Query(query): Query<TimeRangeQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let from = query
+        .from
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::hours(24));
+    let to = query
+        .to
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(Utc::now);
+    let limit = query.limit.unwrap_or(20);
+
+    let entries = state
+        .app_state
+        .mongo
+        .get_top_paths(from, to, limit)
+        .await?;
+
+    Ok(Json(entries))
+}
+
+/// GET /api/dashboard/error-summary - Error grouping summary
+pub async fn get_error_summary(
+    State(state): State<ProxyState>,
+    Query(query): Query<TimeRangeQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let from = query
+        .from
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::hours(24));
+    let to = query
+        .to
+        .as_deref()
+        .and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
+        .unwrap_or_else(Utc::now);
+
+    let summary = state
+        .app_state
+        .mongo
+        .get_error_summary(from, to)
+        .await?;
+
+    Ok(Json(summary))
+}
+
+/// GET /api/dashboard/access-log/export - CSV export
+pub async fn export_access_log(
+    State(state): State<ProxyState>,
+    Query(query): Query<AccessLogSearchQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    // Limit to 10000 for export
+    let mut export_query = AccessLogSearchQuery {
+        from: query.from,
+        to: query.to,
+        method: query.method,
+        status_min: query.status_min,
+        status_max: query.status_max,
+        ip: query.ip,
+        path: query.path,
+        limit: query.limit.min(10000),
+        offset: 0,
+    };
+    if export_query.limit == 0 {
+        export_query.limit = 10000;
+    }
+
+    let result = state
+        .app_state
+        .mongo
+        .search_access_logs(&export_query)
+        .await?;
+
+    // Build CSV
+    let mut csv = String::from("timestamp,ip,method,path,status,response_time_ms,user_agent,referer\n");
+    for log in &result.logs {
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{},{}\n",
+            log.timestamp.to_rfc3339(),
+            csv_escape(&log.ip),
+            csv_escape(&log.method),
+            csv_escape(&log.path),
+            log.status,
+            log.response_time_ms,
+            csv_escape(log.user_agent.as_deref().unwrap_or("")),
+            csv_escape(log.referer.as_deref().unwrap_or("")),
+        ));
+    }
+
+    let headers = [
+        (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+        (
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"access_logs.csv\"",
+        ),
+    ];
+
+    Ok((StatusCode::OK, headers, csv))
+}
+
+/// Escape a field for CSV (wrap in quotes if it contains comma, quote, or newline)
+fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
 }

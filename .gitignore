@@ -46,6 +46,6 @@ coverage/
 *.temp
 .cache/
 
-# Logs
-logs/
+# Logs (root only, not frontend/src/app/logs/)
+/logs/
 *.log

@@ -1,14 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { securityApi } from '@/lib/api';
-import type { BlockedIp, SecurityEvent, Severity, BlockIpRequest } from '@/types';
+import type { BlockedIp, SecurityEvent, Severity, BlockIpRequest, SecurityEventSearchParams } from '@/types';
+
+const SEVERITY_OPTIONS = [
+  { value: '', label: 'All Severities' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+];
+
+const EVENT_TYPE_OPTIONS = [
+  { value: '', label: 'All Types' },
+  { value: 'ip_blocked', label: 'IP Blocked' },
+  { value: 'rate_limit_exceeded', label: 'Rate Limit' },
+  { value: 'suspicious_activity', label: 'Suspicious' },
+  { value: 'ddns_failure', label: 'DDNS Failure' },
+  { value: 'health_check_failure', label: 'Health Failure' },
+];
 
 export default function SecurityPage() {
   const [blockedIps, setBlockedIps] = useState<BlockedIp[]>([]);
@@ -21,6 +39,13 @@ export default function SecurityPage() {
   });
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'blocked' | 'events'>('blocked');
+
+  // Event filter state
+  const [filterFromDate, setFilterFromDate] = useState('');
+  const [filterToDate, setFilterToDate] = useState('');
+  const [filterSeverity, setFilterSeverity] = useState('');
+  const [filterEventType, setFilterEventType] = useState('');
+  const [filterIp, setFilterIp] = useState('');
 
   useEffect(() => {
     loadData();
@@ -39,6 +64,30 @@ export default function SecurityPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEventSearch = useCallback(async () => {
+    try {
+      const params: SecurityEventSearchParams = { limit: 100 };
+      if (filterFromDate) params.from = new Date(filterFromDate).toISOString();
+      if (filterToDate) params.to = new Date(filterToDate).toISOString();
+      if (filterSeverity) params.severity = filterSeverity;
+      if (filterEventType) params.event_type = filterEventType;
+      if (filterIp) params.ip = filterIp;
+      const results = await securityApi.searchEvents(params);
+      setEvents(results);
+    } catch (err) {
+      console.error('Failed to search events:', err);
+    }
+  }, [filterFromDate, filterToDate, filterSeverity, filterEventType, filterIp]);
+
+  const handleEventFilterReset = () => {
+    setFilterFromDate('');
+    setFilterToDate('');
+    setFilterSeverity('');
+    setFilterEventType('');
+    setFilterIp('');
+    loadData();
   };
 
   const handleBlockIp = async (e: React.FormEvent) => {
@@ -237,23 +286,66 @@ export default function SecurityPage() {
       </div>
 
       {/* Content */}
-      <div className="bg-card border border-border rounded-lg">
-        {activeTab === 'blocked' ? (
+      {activeTab === 'blocked' ? (
+        <div className="bg-card border border-border rounded-lg">
           <Table
             columns={blockedIpColumns}
             data={blockedIps}
             keyExtractor={(ip) => ip.id}
             emptyMessage="No blocked IPs"
           />
-        ) : (
-          <Table
-            columns={eventColumns}
-            data={events}
-            keyExtractor={(e) => `${e.timestamp}-${e.event_type}-${e.ip || 'none'}`}
-            emptyMessage="No security events"
-          />
-        )}
-      </div>
+        </div>
+      ) : (
+        <>
+          {/* Event Filters */}
+          <Card className="mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+              <Input
+                label="From"
+                type="datetime-local"
+                value={filterFromDate}
+                onChange={(e) => setFilterFromDate(e.target.value)}
+              />
+              <Input
+                label="To"
+                type="datetime-local"
+                value={filterToDate}
+                onChange={(e) => setFilterToDate(e.target.value)}
+              />
+              <Select
+                label="Severity"
+                options={SEVERITY_OPTIONS}
+                value={filterSeverity}
+                onChange={(e) => setFilterSeverity(e.target.value)}
+              />
+              <Select
+                label="Event Type"
+                options={EVENT_TYPE_OPTIONS}
+                value={filterEventType}
+                onChange={(e) => setFilterEventType(e.target.value)}
+              />
+              <Input
+                label="IP"
+                placeholder="192.168.1.1"
+                value={filterIp}
+                onChange={(e) => setFilterIp(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleEventSearch}>Search</Button>
+              <Button variant="ghost" onClick={handleEventFilterReset}>Reset</Button>
+            </div>
+          </Card>
+          <div className="bg-card border border-border rounded-lg">
+            <Table
+              columns={eventColumns}
+              data={events}
+              keyExtractor={(e) => `${e.timestamp}-${e.event_type}-${e.ip || 'none'}`}
+              emptyMessage="No security events"
+            />
+          </div>
+        </>
+      )}
 
       {/* Block IP Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Block IP Address">

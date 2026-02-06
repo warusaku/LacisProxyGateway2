@@ -16,6 +16,12 @@ import type {
   AccessLog,
   StatusDistribution,
   SuccessResponse,
+  HourlyStat,
+  TopEntry,
+  ErrorSummary,
+  AccessLogSearchResult,
+  AccessLogSearchParams,
+  SecurityEventSearchParams,
 } from '@/types';
 
 const API_BASE = '/LacisProxyGateway2/api';
@@ -142,6 +148,18 @@ export const securityApi = {
     request<SecurityEvent[]>(`/security/events?limit=${limit}&offset=${offset}`),
 
   getEventsByIp: (ip: string) => request<SecurityEvent[]>(`/security/events/ip/${ip}`),
+
+  searchEvents: (params: SecurityEventSearchParams) => {
+    const query = new URLSearchParams();
+    if (params.from) query.set('from', params.from);
+    if (params.to) query.set('to', params.to);
+    if (params.severity) query.set('severity', params.severity);
+    if (params.event_type) query.set('event_type', params.event_type);
+    if (params.ip) query.set('ip', params.ip);
+    if (params.limit !== undefined) query.set('limit', params.limit.toString());
+    if (params.offset !== undefined) query.set('offset', params.offset.toString());
+    return request<SecurityEvent[]>(`/security/events/search?${query}`);
+  },
 };
 
 // ============================================================================
@@ -282,6 +300,71 @@ export const dashboardApi = {
   getSslStatus: () => request<SslStatus>('/dashboard/ssl-status'),
 
   getServerHealth: () => request<ServerHealth>('/dashboard/server-health'),
+
+  searchAccessLogs: (params: AccessLogSearchParams) => {
+    const query = new URLSearchParams();
+    if (params.from) query.set('from', params.from);
+    if (params.to) query.set('to', params.to);
+    if (params.method) query.set('method', params.method);
+    if (params.status_min !== undefined) query.set('status_min', params.status_min.toString());
+    if (params.status_max !== undefined) query.set('status_max', params.status_max.toString());
+    if (params.ip) query.set('ip', params.ip);
+    if (params.path) query.set('path', params.path);
+    if (params.limit !== undefined) query.set('limit', params.limit.toString());
+    if (params.offset !== undefined) query.set('offset', params.offset.toString());
+    return request<AccessLogSearchResult>(`/dashboard/access-log/search?${query}`);
+  },
+
+  getHourlyStats: (from?: string, to?: string) => {
+    const query = new URLSearchParams();
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    return request<HourlyStat[]>(`/dashboard/hourly-stats?${query}`);
+  },
+
+  getTopIps: (from?: string, to?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    if (limit) query.set('limit', limit.toString());
+    return request<TopEntry[]>(`/dashboard/top-ips?${query}`);
+  },
+
+  getTopPaths: (from?: string, to?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    if (limit) query.set('limit', limit.toString());
+    return request<TopEntry[]>(`/dashboard/top-paths?${query}`);
+  },
+
+  getErrorSummary: (from?: string, to?: string) => {
+    const query = new URLSearchParams();
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    return request<ErrorSummary[]>(`/dashboard/error-summary?${query}`);
+  },
+
+  exportCsv: async (params: AccessLogSearchParams) => {
+    const query = new URLSearchParams();
+    if (params.from) query.set('from', params.from);
+    if (params.to) query.set('to', params.to);
+    if (params.method) query.set('method', params.method);
+    if (params.status_min !== undefined) query.set('status_min', params.status_min.toString());
+    if (params.status_max !== undefined) query.set('status_max', params.status_max.toString());
+    if (params.ip) query.set('ip', params.ip);
+    if (params.path) query.set('path', params.path);
+    if (params.limit !== undefined) query.set('limit', params.limit.toString());
+    const response = await fetch(`${API_BASE}/dashboard/access-log/export?${query}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'access_logs.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ============================================================================
