@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use futures::TryStreamExt;
-use mongodb::bson::{self, doc, DateTime as BsonDateTime};
+use mongodb::bson::{self, doc};
 use mongodb::options::FindOptions;
 
 use crate::error::AppError;
@@ -281,19 +281,13 @@ impl MongoDb {
 
         let mut filter = doc! {};
 
-        // Time range
+        // Time range (timestamp stored as ISO 8601 string, string comparison works)
         let mut time_filter = doc! {};
         if let Some(from) = query.from {
-            time_filter.insert(
-                "$gte",
-                BsonDateTime::from_millis(from.timestamp_millis()),
-            );
+            time_filter.insert("$gte", from.to_rfc3339());
         }
         if let Some(to) = query.to {
-            time_filter.insert(
-                "$lte",
-                BsonDateTime::from_millis(to.timestamp_millis()),
-            );
+            time_filter.insert("$lte", to.to_rfc3339());
         }
         if !time_filter.is_empty() {
             filter.insert("timestamp", time_filter);

@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use futures::TryStreamExt;
-use mongodb::bson::{self, doc, DateTime as BsonDateTime};
+use mongodb::bson::{self, doc};
 use mongodb::options::FindOptions;
 
 use crate::error::AppError;
@@ -137,7 +137,7 @@ impl MongoDb {
 
         let count = collection
             .count_documents(doc! {
-                "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) }
+                "timestamp": { "$gte": today_start.to_rfc3339() }
             }, None)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
@@ -156,7 +156,7 @@ impl MongoDb {
             .and_utc();
 
         let pipeline = vec![
-            doc! { "$match": { "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) } } },
+            doc! { "$match": { "timestamp": { "$gte": today_start.to_rfc3339() } } },
             doc! { "$group": { "_id": "$status", "count": { "$sum": 1 } } },
             doc! { "$sort": { "_id": 1 } },
         ];
@@ -311,7 +311,7 @@ impl MongoDb {
             .count_documents(
                 doc! {
                     "path": { "$regex": format!("^{}", escaped_path) },
-                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) }
+                    "timestamp": { "$gte": today_start.to_rfc3339() }
                 },
                 None,
             )
@@ -323,7 +323,7 @@ impl MongoDb {
             .count_documents(
                 doc! {
                     "path": { "$regex": format!("^{}", escaped_path) },
-                    "timestamp": { "$gte": BsonDateTime::from_millis(hour_ago.timestamp_millis()) }
+                    "timestamp": { "$gte": hour_ago.to_rfc3339() }
                 },
                 None,
             )
@@ -335,7 +335,7 @@ impl MongoDb {
             .count_documents(
                 doc! {
                     "path": { "$regex": format!("^{}", escaped_path) },
-                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) },
+                    "timestamp": { "$gte": today_start.to_rfc3339() },
                     "status": { "$gte": 400 }
                 },
                 None,
@@ -354,7 +354,7 @@ impl MongoDb {
             doc! {
                 "$match": {
                     "path": { "$regex": format!("^{}", escaped_path) },
-                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) },
+                    "timestamp": { "$gte": today_start.to_rfc3339() },
                     "response_time_ms": { "$exists": true }
                 }
             },
@@ -439,23 +439,20 @@ impl MongoDb {
     ) -> Result<Vec<HourlyStat>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
+        // Timestamp is stored as ISO 8601 string, so use string comparison
+        // and $substrBytes to extract hour portion (first 13 chars = "2026-02-06T22")
         let pipeline = vec![
             doc! {
                 "$match": {
                     "timestamp": {
-                        "$gte": BsonDateTime::from_millis(from.timestamp_millis()),
-                        "$lte": BsonDateTime::from_millis(to.timestamp_millis()),
+                        "$gte": from.to_rfc3339(),
+                        "$lte": to.to_rfc3339(),
                     }
                 }
             },
             doc! {
                 "$group": {
-                    "_id": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%dT%H:00:00Z",
-                            "date": "$timestamp"
-                        }
-                    },
+                    "_id": { "$substrBytes": ["$timestamp", 0, 13] },
                     "total_requests": { "$sum": 1 },
                     "error_count": {
                         "$sum": {
@@ -479,7 +476,9 @@ impl MongoDb {
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?
         {
-            let hour = doc.get_str("_id").unwrap_or("").to_string();
+            // _id is "2026-02-06T22" (first 13 chars), append ":00:00Z" for full ISO format
+            let hour_prefix = doc.get_str("_id").unwrap_or("");
+            let hour = format!("{}:00:00Z", hour_prefix);
             let total_requests = doc.get_i64("total_requests").unwrap_or(0) as u64;
             let error_count = doc.get_i64("error_count").unwrap_or(0) as u64;
             let avg_response_time_ms = doc.get_f64("avg_response_time_ms").unwrap_or(0.0);
@@ -508,8 +507,8 @@ impl MongoDb {
             doc! {
                 "$match": {
                     "timestamp": {
-                        "$gte": BsonDateTime::from_millis(from.timestamp_millis()),
-                        "$lte": BsonDateTime::from_millis(to.timestamp_millis()),
+                        "$gte": from.to_rfc3339(),
+                        "$lte": to.to_rfc3339(),
                     }
                 }
             },
@@ -565,8 +564,8 @@ impl MongoDb {
             doc! {
                 "$match": {
                     "timestamp": {
-                        "$gte": BsonDateTime::from_millis(from.timestamp_millis()),
-                        "$lte": BsonDateTime::from_millis(to.timestamp_millis()),
+                        "$gte": from.to_rfc3339(),
+                        "$lte": to.to_rfc3339(),
                     }
                 }
             },
@@ -621,8 +620,8 @@ impl MongoDb {
             doc! {
                 "$match": {
                     "timestamp": {
-                        "$gte": BsonDateTime::from_millis(from.timestamp_millis()),
-                        "$lte": BsonDateTime::from_millis(to.timestamp_millis()),
+                        "$gte": from.to_rfc3339(),
+                        "$lte": to.to_rfc3339(),
                     },
                     "status": { "$gte": 400 }
                 }
@@ -695,13 +694,13 @@ impl MongoDb {
     fn build_access_log_filter(query: &AccessLogSearchQuery) -> bson::Document {
         let mut filter = doc! {};
 
-        // Time range
+        // Time range (timestamp stored as ISO 8601 string, string comparison works)
         let mut time_filter = doc! {};
         if let Some(from) = query.from {
-            time_filter.insert("$gte", BsonDateTime::from_millis(from.timestamp_millis()));
+            time_filter.insert("$gte", from.to_rfc3339());
         }
         if let Some(to) = query.to {
-            time_filter.insert("$lte", BsonDateTime::from_millis(to.timestamp_millis()));
+            time_filter.insert("$lte", to.to_rfc3339());
         }
         if !time_filter.is_empty() {
             filter.insert("timestamp", time_filter);
