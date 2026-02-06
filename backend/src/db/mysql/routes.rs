@@ -13,7 +13,7 @@ impl MySqlDb {
         let routes = sqlx::query_as::<_, ProxyRoute>(
             r#"
             SELECT id, path, target, ddns_config_id, priority, active, strip_prefix, preserve_host,
-                   timeout_ms, created_at, updated_at
+                   timeout_ms, websocket_support, created_at, updated_at
             FROM proxy_routes
             ORDER BY priority ASC, id ASC
             "#,
@@ -29,7 +29,7 @@ impl MySqlDb {
         let routes = sqlx::query_as::<_, ProxyRoute>(
             r#"
             SELECT id, path, target, ddns_config_id, priority, active, strip_prefix, preserve_host,
-                   timeout_ms, created_at, updated_at
+                   timeout_ms, websocket_support, created_at, updated_at
             FROM proxy_routes
             WHERE active = TRUE
             ORDER BY priority ASC, id ASC
@@ -46,8 +46,8 @@ impl MySqlDb {
         let rows = sqlx::query(
             r#"
             SELECT r.id, r.path, r.target, r.ddns_config_id, r.priority, r.active,
-                   r.strip_prefix, r.preserve_host, r.timeout_ms, r.created_at, r.updated_at,
-                   d.hostname as ddns_hostname
+                   r.strip_prefix, r.preserve_host, r.timeout_ms, r.websocket_support,
+                   r.created_at, r.updated_at, d.hostname as ddns_hostname
             FROM proxy_routes r
             LEFT JOIN ddns_configs d ON r.ddns_config_id = d.id
             WHERE r.active = TRUE
@@ -70,6 +70,7 @@ impl MySqlDb {
                     strip_prefix: row.get("strip_prefix"),
                     preserve_host: row.get("preserve_host"),
                     timeout_ms: row.get("timeout_ms"),
+                    websocket_support: row.get("websocket_support"),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 };
@@ -88,7 +89,7 @@ impl MySqlDb {
         let route = sqlx::query_as::<_, ProxyRoute>(
             r#"
             SELECT id, path, target, ddns_config_id, priority, active, strip_prefix, preserve_host,
-                   timeout_ms, created_at, updated_at
+                   timeout_ms, websocket_support, created_at, updated_at
             FROM proxy_routes
             WHERE id = ?
             "#,
@@ -104,8 +105,8 @@ impl MySqlDb {
     pub async fn create_route(&self, req: &CreateRouteRequest) -> Result<i32, AppError> {
         let result = sqlx::query(
             r#"
-            INSERT INTO proxy_routes (path, target, ddns_config_id, priority, active, strip_prefix, preserve_host, timeout_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO proxy_routes (path, target, ddns_config_id, priority, active, strip_prefix, preserve_host, timeout_ms, websocket_support)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&req.path)
@@ -116,6 +117,7 @@ impl MySqlDb {
         .bind(req.strip_prefix)
         .bind(req.preserve_host)
         .bind(req.timeout_ms)
+        .bind(req.websocket_support)
         .execute(&self.pool)
         .await?;
 
@@ -140,12 +142,13 @@ impl MySqlDb {
         let strip_prefix = req.strip_prefix.unwrap_or(existing.strip_prefix);
         let preserve_host = req.preserve_host.unwrap_or(existing.preserve_host);
         let timeout_ms = req.timeout_ms.unwrap_or(existing.timeout_ms);
+        let websocket_support = req.websocket_support.unwrap_or(existing.websocket_support);
 
         let result = sqlx::query(
             r#"
             UPDATE proxy_routes
             SET path = ?, target = ?, ddns_config_id = ?, priority = ?, active = ?,
-                strip_prefix = ?, preserve_host = ?, timeout_ms = ?
+                strip_prefix = ?, preserve_host = ?, timeout_ms = ?, websocket_support = ?
             WHERE id = ?
             "#,
         )
@@ -157,6 +160,7 @@ impl MySqlDb {
         .bind(strip_prefix)
         .bind(preserve_host)
         .bind(timeout_ms)
+        .bind(websocket_support)
         .bind(id)
         .execute(&self.pool)
         .await?;

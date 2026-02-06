@@ -139,6 +139,7 @@ mod tests {
             strip_prefix,
             preserve_host: false,
             timeout_ms: 30000,
+            websocket_support: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -161,6 +162,7 @@ mod tests {
                 strip_prefix: true,
                 preserve_host: false,
                 timeout_ms: 30000,
+                websocket_support: false,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },

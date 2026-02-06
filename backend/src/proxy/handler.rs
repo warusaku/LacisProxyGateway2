@@ -2,7 +2,8 @@
 
 use axum::{
     body::Body,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, FromRequest, Request, State},
+    extract::ws::WebSocketUpgrade,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -72,6 +73,49 @@ pub async fn proxy_handler(
     drop(router);
 
     tracing::debug!("Proxying {} {} -> {}", method, path, full_url);
+
+    // WebSocket upgrade detection
+    let is_websocket = headers
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+
+    if is_websocket && matched_route.websocket_support {
+        // Extract WebSocketUpgrade from the request
+        let user_agent = headers
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let referer = headers
+            .get(header::REFERER)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        match WebSocketUpgrade::from_request(req, &()).await {
+            Ok(ws) => {
+                return super::ws_handler::handle_websocket_upgrade(
+                    ws,
+                    state,
+                    matched_route,
+                    full_url,
+                    client_ip,
+                    path.to_string(),
+                    user_agent,
+                    referer,
+                )
+                .await;
+            }
+            Err(e) => {
+                tracing::error!("WebSocket upgrade extraction failed: {}", e);
+                return (StatusCode::BAD_REQUEST, "WebSocket upgrade failed").into_response();
+            }
+        }
+    }
+
+    if is_websocket && !matched_route.websocket_support {
+        return (StatusCode::BAD_REQUEST, "WebSocket not supported on this route").into_response();
+    }
 
     // Build upstream request
     let mut request_builder = state

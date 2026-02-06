@@ -1,19 +1,24 @@
 //! API module - HTTP handlers and routes
 
+mod admin_guard;
 pub mod handlers;
 
 use axum::{
+    middleware,
     routing::{delete, get, post, put},
     Router,
 };
 
 use crate::proxy::ProxyState;
 
-pub fn routes(state: ProxyState) -> Router<ProxyState> {
-    Router::new()
-        // Health check
+pub fn routes(_state: ProxyState) -> Router<ProxyState> {
+    // Public routes - accessible from any network (monitoring/health check)
+    let public = Router::new()
         .route("/health", get(handlers::health_check))
-        .route("/api/health", get(handlers::health_check))
+        .route("/api/health", get(handlers::health_check));
+
+    // Admin routes - restricted to private networks only (192.168.x.x, 10.x.x.x, etc.)
+    let admin = Router::new()
         // Proxy routes management
         .route("/api/routes", get(handlers::list_routes))
         .route("/api/routes", post(handlers::create_route))
@@ -82,4 +87,8 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/nginx/reload", post(handlers::reload_nginx_handler))
         .route("/api/nginx/test", post(handlers::test_nginx_config_handler))
         .route("/api/nginx/body-size", put(handlers::update_body_size))
+        // Apply private network guard to all admin routes
+        .layer(middleware::from_fn(admin_guard::require_private_network));
+
+    public.merge(admin)
 }

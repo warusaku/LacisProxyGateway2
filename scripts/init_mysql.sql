@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS proxy_routes (
     strip_prefix BOOLEAN DEFAULT TRUE COMMENT 'Strip matched prefix from forwarded request',
     preserve_host BOOLEAN DEFAULT FALSE COMMENT 'Preserve original Host header',
     timeout_ms INT DEFAULT 30000 COMMENT 'Request timeout in milliseconds',
+    websocket_support BOOLEAN DEFAULT FALSE COMMENT 'Enable WebSocket proxy support',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_path (path),

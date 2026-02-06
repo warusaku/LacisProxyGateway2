@@ -150,6 +150,16 @@ pub async fn update_route(
                 }
             }
 
+            if let Some(new_ws) = payload.websocket_support {
+                if old.websocket_support != new_ws {
+                    let _ = state.app_state.mysql.log_audit(
+                        "route", Some(id), "update", Some("websocket_support"),
+                        Some(&old.websocket_support.to_string()), Some(&new_ws.to_string()), "api", None,
+                    ).await;
+                    changes.push(format!("websocket_support: `{}` → `{}`", old.websocket_support, new_ws));
+                }
+            }
+
             // Send Discord notification if there were changes
             if !changes.is_empty() {
                 state.notifier.notify_config_change(

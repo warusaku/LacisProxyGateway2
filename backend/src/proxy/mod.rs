@@ -2,6 +2,7 @@
 
 mod handler;
 mod router;
+pub(crate) mod ws_handler;
 
 pub use self::handler::proxy_handler;
 pub use self::router::ProxyRouter;

@@ -18,6 +18,7 @@ pub struct ProxyRoute {
     pub strip_prefix: bool,
     pub preserve_host: bool,
     pub timeout_ms: i32,
+    pub websocket_support: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,6 +46,8 @@ pub struct CreateRouteRequest {
     pub preserve_host: bool,
     #[serde(default = "default_timeout")]
     pub timeout_ms: i32,
+    #[serde(default)]
+    pub websocket_support: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +60,7 @@ pub struct UpdateRouteRequest {
     pub strip_prefix: Option<bool>,
     pub preserve_host: Option<bool>,
     pub timeout_ms: Option<i32>,
+    pub websocket_support: Option<bool>,
 }
 
 fn default_priority() -> i32 {

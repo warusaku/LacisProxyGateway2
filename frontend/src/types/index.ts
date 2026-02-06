@@ -14,6 +14,7 @@ export interface ProxyRoute {
   strip_prefix: boolean;
   preserve_host: boolean;
   timeout_ms: number;
+  websocket_support: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +28,7 @@ export interface CreateRouteRequest {
   strip_prefix?: boolean;
   preserve_host?: boolean;
   timeout_ms?: number;
+  websocket_support?: boolean;
 }
 
 export interface UpdateRouteRequest {
@@ -38,6 +40,7 @@ export interface UpdateRouteRequest {
   strip_prefix?: boolean;
   preserve_host?: boolean;
   timeout_ms?: number;
+  websocket_support?: boolean;
 }
 
 // ============================================================================

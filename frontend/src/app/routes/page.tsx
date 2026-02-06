@@ -33,6 +33,7 @@ export default function RoutesPage() {
     strip_prefix: true,
     preserve_host: false,
     timeout_ms: 30000,
+    websocket_support: false,
   });
   const [error, setError] = useState('');
 
@@ -110,6 +111,7 @@ export default function RoutesPage() {
       strip_prefix: true,
       preserve_host: false,
       timeout_ms: 30000,
+      websocket_support: false,
     });
     setError('');
     setIsModalOpen(true);
@@ -126,6 +128,7 @@ export default function RoutesPage() {
       strip_prefix: route.strip_prefix,
       preserve_host: route.preserve_host,
       timeout_ms: route.timeout_ms,
+      websocket_support: route.websocket_support,
     });
     setError('');
     setIsModalOpen(true);
@@ -173,7 +176,10 @@ export default function RoutesPage() {
       key: 'path',
       header: 'Path',
       render: (route: ProxyRoute) => (
-        <code className="text-blue-400">{route.path}</code>
+        <div className="flex items-center gap-2">
+          <code className="text-blue-400">{route.path}</code>
+          {route.websocket_support && <Badge variant="info">WS</Badge>}
+        </div>
       ),
     },
     {
@@ -454,6 +460,15 @@ export default function RoutesPage() {
                 className="rounded"
               />
               <span className="text-sm">Preserve Host</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.websocket_support}
+                onChange={(e) => setFormData({ ...formData, websocket_support: e.target.checked })}
+                className="rounded"
+              />
+              <span className="text-sm">WebSocket</span>
             </label>
           </div>
           {error && <p className="text-red-500 text-sm">{error}</p>}
