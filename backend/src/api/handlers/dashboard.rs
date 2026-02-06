@@ -103,6 +103,137 @@ pub async fn get_health_status(
     Ok(Json(route_health))
 }
 
+/// Detailed route status with metrics
+#[derive(Debug, Serialize)]
+pub struct RouteDetailedStatus {
+    pub route_id: i32,
+    pub path: String,
+    pub target: String,
+    pub active: bool,
+    pub healthy: bool,
+    pub last_check: Option<chrono::DateTime<chrono::Utc>>,
+    pub consecutive_failures: u32,
+    pub response_time_ms: Option<i32>,
+    pub last_status_code: Option<i32>,
+    pub requests_today: u64,
+    pub requests_last_hour: u64,
+    pub error_rate_percent: f64,
+    pub avg_response_time_ms: f64,
+}
+
+/// GET /api/routes/status - Get detailed status for all routes
+pub async fn get_all_routes_status(
+    State(state): State<ProxyState>,
+) -> Result<impl IntoResponse, AppError> {
+    let routes = state.app_state.mysql.list_routes().await?;
+    let health_checks = state.app_state.mongo.get_latest_health_status().await?;
+
+    let mut detailed_status: Vec<RouteDetailedStatus> = Vec::new();
+
+    for route in routes {
+        let check = health_checks.iter().find(|c| c.route_id == route.id);
+        let consecutive_failures = state
+            .app_state
+            .mongo
+            .count_consecutive_failures(route.id)
+            .await
+            .unwrap_or(0);
+
+        // Get request stats for this route
+        let stats = state
+            .app_state
+            .mongo
+            .get_route_stats(&route.path)
+            .await
+            .unwrap_or_default();
+
+        detailed_status.push(RouteDetailedStatus {
+            route_id: route.id,
+            path: route.path.clone(),
+            target: route.target.clone(),
+            active: route.active,
+            healthy: check.map(|c| c.healthy).unwrap_or(true),
+            last_check: check.map(|c| c.timestamp),
+            consecutive_failures,
+            response_time_ms: check.and_then(|c| c.response_time_ms),
+            last_status_code: check.and_then(|c| c.status_code),
+            requests_today: stats.requests_today,
+            requests_last_hour: stats.requests_last_hour,
+            error_rate_percent: stats.error_rate_percent,
+            avg_response_time_ms: stats.avg_response_time_ms,
+        });
+    }
+
+    Ok(Json(detailed_status))
+}
+
+/// GET /api/routes/:id/status - Get detailed status for a specific route
+pub async fn get_route_status(
+    State(state): State<ProxyState>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+) -> Result<impl IntoResponse, AppError> {
+    let route = state
+        .app_state
+        .mysql
+        .get_route(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Route with id {} not found", id)))?;
+    let health_checks = state.app_state.mongo.get_latest_health_status().await?;
+    let check = health_checks.iter().find(|c| c.route_id == route.id);
+    let consecutive_failures = state
+        .app_state
+        .mongo
+        .count_consecutive_failures(route.id)
+        .await
+        .unwrap_or(0);
+
+    let stats = state
+        .app_state
+        .mongo
+        .get_route_stats(&route.path)
+        .await
+        .unwrap_or_default();
+
+    let detailed_status = RouteDetailedStatus {
+        route_id: route.id,
+        path: route.path.clone(),
+        target: route.target.clone(),
+        active: route.active,
+        healthy: check.map(|c| c.healthy).unwrap_or(true),
+        last_check: check.map(|c| c.timestamp),
+        consecutive_failures,
+        response_time_ms: check.and_then(|c| c.response_time_ms),
+        last_status_code: check.and_then(|c| c.status_code),
+        requests_today: stats.requests_today,
+        requests_last_hour: stats.requests_last_hour,
+        error_rate_percent: stats.error_rate_percent,
+        avg_response_time_ms: stats.avg_response_time_ms,
+    };
+
+    Ok(Json(detailed_status))
+}
+
+/// GET /api/routes/:id/logs - Get access logs for a specific route
+pub async fn get_route_logs(
+    State(state): State<ProxyState>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Query(pagination): Query<PaginationQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let route = state
+        .app_state
+        .mysql
+        .get_route(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Route with id {} not found", id)))?;
+    let logs = state
+        .app_state
+        .mongo
+        .get_access_logs_by_path(&route.path, pagination.limit)
+        .await?;
+
+    Ok(Json(logs))
+}
+
 #[derive(Debug, Serialize)]
 pub struct StatusDistribution {
     pub status: i32,

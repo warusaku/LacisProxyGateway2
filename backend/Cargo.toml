@@ -47,6 +47,7 @@ anyhow = "1"
 # Async utilities
 futures = "0.3"
 async-trait = "0.1"
+regex = "1.12.3"
 
 [dev-dependencies]
 tokio-test = "0.4"

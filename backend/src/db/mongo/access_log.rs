@@ -286,4 +286,104 @@ impl MongoDb {
 
         Ok(count)
     }
+
+    /// Get statistics for a specific route path
+    pub async fn get_route_stats(&self, path: &str) -> Result<crate::models::RouteStats, AppError> {
+        use chrono::Duration;
+
+        let collection = self.db.collection::<bson::Document>("access_logs");
+
+        let today_start = Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+        let hour_ago = Utc::now() - Duration::hours(1);
+
+        // Escape regex special characters in path
+        let escaped_path = regex::escape(path);
+
+        // Count requests today
+        let requests_today = collection
+            .count_documents(
+                doc! {
+                    "path": { "$regex": format!("^{}", escaped_path) },
+                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) }
+                },
+                None,
+            )
+            .await
+            .unwrap_or(0);
+
+        // Count requests last hour
+        let requests_last_hour = collection
+            .count_documents(
+                doc! {
+                    "path": { "$regex": format!("^{}", escaped_path) },
+                    "timestamp": { "$gte": BsonDateTime::from_millis(hour_ago.timestamp_millis()) }
+                },
+                None,
+            )
+            .await
+            .unwrap_or(0);
+
+        // Calculate error rate (4xx and 5xx) for today
+        let error_count = collection
+            .count_documents(
+                doc! {
+                    "path": { "$regex": format!("^{}", escaped_path) },
+                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) },
+                    "status": { "$gte": 400 }
+                },
+                None,
+            )
+            .await
+            .unwrap_or(0);
+
+        let error_rate_percent = if requests_today > 0 {
+            (error_count as f64 / requests_today as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Calculate average response time for today
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "path": { "$regex": format!("^{}", escaped_path) },
+                    "timestamp": { "$gte": BsonDateTime::from_millis(today_start.timestamp_millis()) },
+                    "response_time_ms": { "$exists": true }
+                }
+            },
+            doc! {
+                "$group": {
+                    "_id": null,
+                    "avg_response_time": { "$avg": "$response_time_ms" }
+                }
+            },
+        ];
+
+        let mut cursor = collection
+            .aggregate(pipeline, None)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        let mut avg_response_time_ms = 0.0;
+        if let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?
+        {
+            if let Ok(avg) = doc.get_f64("avg_response_time") {
+                avg_response_time_ms = avg;
+            }
+        }
+
+        Ok(crate::models::RouteStats {
+            requests_today,
+            requests_last_hour,
+            error_rate_percent,
+            avg_response_time_ms,
+        })
+    }
 }

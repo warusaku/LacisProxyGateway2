@@ -347,6 +347,15 @@ pub struct RouteHealth {
     pub consecutive_failures: u32,
 }
 
+/// Route statistics for detailed status
+#[derive(Debug, Default, Serialize)]
+pub struct RouteStats {
+    pub requests_today: u64,
+    pub requests_last_hour: u64,
+    pub error_rate_percent: f64,
+    pub avg_response_time_ms: f64,
+}
+
 // ============================================================================
 // Audit Log Models
 // ============================================================================

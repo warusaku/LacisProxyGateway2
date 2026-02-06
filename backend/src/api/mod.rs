@@ -17,9 +17,12 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Proxy routes management
         .route("/api/routes", get(handlers::list_routes))
         .route("/api/routes", post(handlers::create_route))
+        .route("/api/routes/status", get(handlers::get_all_routes_status))
         .route("/api/routes/:id", get(handlers::get_route))
         .route("/api/routes/:id", put(handlers::update_route))
         .route("/api/routes/:id", delete(handlers::delete_route))
+        .route("/api/routes/:id/status", get(handlers::get_route_status))
+        .route("/api/routes/:id/logs", get(handlers::get_route_logs))
         // DDNS management
         .route("/api/ddns", get(handlers::list_ddns))
         .route("/api/ddns", post(handlers::create_ddns))

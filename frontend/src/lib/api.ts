@@ -41,6 +41,22 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // Routes API
 // ============================================================================
 
+export interface RouteDetailedStatus {
+  route_id: number;
+  path: string;
+  target: string;
+  active: boolean;
+  healthy: boolean;
+  last_check: string | null;
+  consecutive_failures: number;
+  response_time_ms: number | null;
+  last_status_code: number | null;
+  requests_today: number;
+  requests_last_hour: number;
+  error_rate_percent: number;
+  avg_response_time_ms: number;
+}
+
 export const routesApi = {
   list: () => request<ProxyRoute[]>('/routes'),
 
@@ -62,6 +78,14 @@ export const routesApi = {
     request<SuccessResponse>(`/routes/${id}`, {
       method: 'DELETE',
     }),
+
+  // Status and health APIs
+  getAllStatus: () => request<RouteDetailedStatus[]>('/routes/status'),
+
+  getStatus: (id: number) => request<RouteDetailedStatus>(`/routes/${id}/status`),
+
+  getLogs: (id: number, limit: number = 50) =>
+    request<AccessLog[]>(`/routes/${id}/logs?limit=${limit}`),
 };
 
 // ============================================================================

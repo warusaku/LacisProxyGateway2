@@ -7,15 +7,23 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
-import { routesApi, ddnsApi } from '@/lib/api';
-import type { ProxyRoute, CreateRouteRequest, DdnsConfig } from '@/types';
+import { Card } from '@/components/ui/Card';
+import { routesApi, ddnsApi, type RouteDetailedStatus } from '@/lib/api';
+import type { ProxyRoute, CreateRouteRequest, DdnsConfig, AccessLog } from '@/types';
+
+type ViewMode = 'list' | 'status';
 
 export default function RoutesPage() {
   const [routes, setRoutes] = useState<ProxyRoute[]>([]);
+  const [routeStatus, setRouteStatus] = useState<RouteDetailedStatus[]>([]);
   const [ddnsConfigs, setDdnsConfigs] = useState<DdnsConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
+  const [selectedRouteLogs, setSelectedRouteLogs] = useState<AccessLog[]>([]);
+  const [selectedRouteName, setSelectedRouteName] = useState('');
   const [editingRoute, setEditingRoute] = useState<ProxyRoute | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [formData, setFormData] = useState<CreateRouteRequest>({
     path: '',
     target: '',
@@ -30,16 +38,25 @@ export default function RoutesPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+    // Auto-refresh status every 30 seconds
+    const interval = setInterval(() => {
+      if (viewMode === 'status') {
+        loadRouteStatus();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [viewMode]);
 
   const loadData = async () => {
     try {
-      const [routesData, ddnsData] = await Promise.all([
+      const [routesData, ddnsData, statusData] = await Promise.all([
         routesApi.list(),
         ddnsApi.list(),
+        routesApi.getAllStatus().catch(() => []),
       ]);
       setRoutes(routesData);
       setDdnsConfigs(ddnsData);
+      setRouteStatus(statusData);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -53,6 +70,26 @@ export default function RoutesPage() {
       setRoutes(data);
     } catch (err) {
       console.error('Failed to load routes:', err);
+    }
+  };
+
+  const loadRouteStatus = async () => {
+    try {
+      const statusData = await routesApi.getAllStatus();
+      setRouteStatus(statusData);
+    } catch (err) {
+      console.error('Failed to load route status:', err);
+    }
+  };
+
+  const loadRouteLogs = async (routeId: number, routePath: string) => {
+    try {
+      const logs = await routesApi.getLogs(routeId, 50);
+      setSelectedRouteLogs(logs);
+      setSelectedRouteName(routePath);
+      setIsLogsModalOpen(true);
+    } catch (err) {
+      console.error('Failed to load route logs:', err);
     }
   };
 
@@ -190,6 +227,62 @@ export default function RoutesPage() {
     },
   ];
 
+  const getStatusColor = (status: number) => {
+    if (status >= 200 && status < 300) return 'text-green-400';
+    if (status >= 300 && status < 400) return 'text-blue-400';
+    if (status >= 400 && status < 500) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const logColumns = [
+    {
+      key: 'timestamp',
+      header: 'Time',
+      render: (log: AccessLog) => (
+        <span className="text-sm text-gray-400">
+          {new Date(log.timestamp).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: 'method',
+      header: 'Method',
+      render: (log: AccessLog) => (
+        <span className="font-mono text-sm">{log.method}</span>
+      ),
+    },
+    {
+      key: 'path',
+      header: 'Path',
+      render: (log: AccessLog) => (
+        <code className="text-sm truncate max-w-xs block">{log.path}</code>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (log: AccessLog) => (
+        <span className={`font-mono ${getStatusColor(log.status)}`}>
+          {log.status}
+        </span>
+      ),
+    },
+    {
+      key: 'response_time_ms',
+      header: 'Time',
+      render: (log: AccessLog) => (
+        <span className="text-sm text-gray-400">{log.response_time_ms}ms</span>
+      ),
+    },
+    {
+      key: 'ip',
+      header: 'IP',
+      render: (log: AccessLog) => (
+        <code className="text-sm">{log.ip}</code>
+      ),
+    },
+  ];
+
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading...</div>;
   }
@@ -198,12 +291,97 @@ export default function RoutesPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Proxy Routes</h1>
-        <Button onClick={openCreateModal}>Add Route</Button>
+        <div className="flex gap-2">
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              className={`px-4 py-2 text-sm ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'bg-card hover:bg-muted'}`}
+              onClick={() => setViewMode('list')}
+            >
+              List
+            </button>
+            <button
+              className={`px-4 py-2 text-sm ${viewMode === 'status' ? 'bg-primary text-primary-foreground' : 'bg-card hover:bg-muted'}`}
+              onClick={() => { setViewMode('status'); loadRouteStatus(); }}
+            >
+              Status
+            </button>
+          </div>
+          <Button onClick={openCreateModal}>Add Route</Button>
+        </div>
       </div>
 
-      <div className="bg-card border border-border rounded-lg">
-        <Table columns={columns} data={routes} keyExtractor={(r) => r.id} emptyMessage="No routes configured" />
-      </div>
+      {viewMode === 'list' ? (
+        <div className="bg-card border border-border rounded-lg">
+          <Table columns={columns} data={routes} keyExtractor={(r) => r.id} emptyMessage="No routes configured" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {routeStatus.map((status) => (
+            <Card key={status.route_id} className="relative">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <code className="text-lg text-blue-400">{status.path}</code>
+                  <div className="text-sm text-gray-400 mt-1">{status.target}</div>
+                </div>
+                <div className="flex gap-2">
+                  <Badge variant={status.active ? 'success' : 'default'}>
+                    {status.active ? 'Active' : 'Inactive'}
+                  </Badge>
+                  <Badge variant={status.healthy ? 'success' : 'error'}>
+                    {status.healthy ? 'Healthy' : 'Unhealthy'}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <div className="text-gray-400">Today</div>
+                  <div className="text-xl font-bold">{status.requests_today.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Last Hour</div>
+                  <div className="text-xl font-bold">{status.requests_last_hour.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Error Rate</div>
+                  <div className={`text-xl font-bold ${status.error_rate_percent > 10 ? 'text-red-400' : status.error_rate_percent > 5 ? 'text-yellow-400' : 'text-green-400'}`}>
+                    {status.error_rate_percent.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Avg Response</div>
+                  <div className={`text-xl font-bold ${status.avg_response_time_ms > 1000 ? 'text-red-400' : status.avg_response_time_ms > 500 ? 'text-yellow-400' : 'text-green-400'}`}>
+                    {status.avg_response_time_ms.toFixed(0)}ms
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-border flex justify-between items-center text-sm">
+                <div className="text-gray-400">
+                  {status.consecutive_failures > 0 && (
+                    <span className="text-red-400">
+                      {status.consecutive_failures} consecutive failures
+                    </span>
+                  )}
+                  {status.last_check && (
+                    <span className="ml-2">
+                      Last check: {new Date(status.last_check).toLocaleTimeString()}
+                    </span>
+                  )}
+                  {status.last_status_code && (
+                    <span className={`ml-2 font-mono ${getStatusColor(status.last_status_code)}`}>
+                      ({status.last_status_code})
+                    </span>
+                  )}
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => loadRouteLogs(status.route_id, status.path)}>
+                  View Logs
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Modal
         isOpen={isModalOpen}
@@ -288,6 +466,27 @@ export default function RoutesPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Logs Modal */}
+      <Modal
+        isOpen={isLogsModalOpen}
+        onClose={() => setIsLogsModalOpen(false)}
+        title={`Access Logs: ${selectedRouteName}`}
+      >
+        <div className="max-h-[500px] overflow-y-auto">
+          <Table
+            columns={logColumns}
+            data={selectedRouteLogs}
+            keyExtractor={(log) => `${log.timestamp}-${log.ip}-${log.path}`}
+            emptyMessage="No logs found"
+          />
+        </div>
+        <div className="flex justify-end mt-4">
+          <Button variant="ghost" onClick={() => setIsLogsModalOpen(false)}>
+            Close
+          </Button>
+        </div>
       </Modal>
     </div>
   );
