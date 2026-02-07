@@ -84,6 +84,29 @@ INSERT INTO settings (setting_key, setting_value, description) VALUES
     ('restart_ram_threshold', '90', 'RAM threshold percentage for auto-restart')
 ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
+-- Nginx Template Settings (15 keys)
+INSERT INTO settings (setting_key, setting_value, description) VALUES
+    -- Nginx Core
+    ('nginx_server_name', '_', 'Nginx server_name directive'),
+    ('nginx_backend_port', '8081', 'Backend proxy port'),
+    -- Nginx Gzip
+    ('nginx_gzip_enabled', 'true', 'Enable gzip compression'),
+    ('nginx_gzip_comp_level', '6', 'Gzip compression level (1-9)'),
+    ('nginx_gzip_min_length', '1024', 'Minimum response size for gzip (bytes)'),
+    -- Nginx Proxy Timeouts
+    ('nginx_proxy_connect_timeout', '60', 'Proxy connect timeout (seconds)'),
+    ('nginx_proxy_send_timeout', '60', 'Proxy send timeout (seconds)'),
+    ('nginx_proxy_read_timeout', '60', 'Proxy read timeout (seconds)'),
+    -- Nginx Security Headers
+    ('nginx_header_x_frame_options', 'SAMEORIGIN', 'X-Frame-Options header value (empty to disable)'),
+    ('nginx_header_x_content_type', 'nosniff', 'X-Content-Type-Options value (empty to disable)'),
+    ('nginx_header_xss_protection', '1; mode=block', 'X-XSS-Protection value (empty to disable)'),
+    ('nginx_header_hsts', 'max-age=31536000; includeSubDomains', 'HSTS header value (empty to disable)'),
+    ('nginx_header_referrer_policy', 'strict-origin-when-cross-origin', 'Referrer-Policy value (empty to disable)'),
+    ('nginx_header_permissions_policy', 'camera=(), microphone=(), geolocation=()', 'Permissions-Policy value (empty to disable)'),
+    ('nginx_header_csp', 'default-src ''self''; script-src ''self'' ''unsafe-inline'' ''unsafe-eval''; style-src ''self'' ''unsafe-inline''; img-src ''self'' data: https:; font-src ''self'' data:; frame-src ''self'' https://maps.google.com https://www.google.com;', 'Content-Security-Policy value (empty to disable)')
+ON DUPLICATE KEY UPDATE setting_key = setting_key;
+
 -- Insert initial proxy routes
 INSERT INTO proxy_routes (path, target, priority, active, strip_prefix) VALUES
     ('/eatyui', 'http://192.168.3.242:3000', 10, TRUE, TRUE),

@@ -10,10 +10,55 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tokio::fs;
 
+use crate::db::mysql::MySqlDb;
 use crate::error::AppError;
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
+
+// ============================================================================
+// Nginx Template Settings (DB-driven config)
+// ============================================================================
+
+/// All nginx template settings stored in DB
+#[derive(Debug, Serialize, Clone)]
+pub struct NginxTemplateSettings {
+    pub server_name: String,
+    pub backend_port: u16,
+    pub gzip_enabled: bool,
+    pub gzip_comp_level: u32,
+    pub gzip_min_length: u32,
+    pub proxy_connect_timeout: u32,
+    pub proxy_send_timeout: u32,
+    pub proxy_read_timeout: u32,
+    pub header_x_frame_options: String,
+    pub header_x_content_type: String,
+    pub header_xss_protection: String,
+    pub header_hsts: String,
+    pub header_referrer_policy: String,
+    pub header_permissions_policy: String,
+    pub header_csp: String,
+}
+
+/// Partial update request - only Some fields are updated
+#[derive(Debug, Deserialize)]
+pub struct UpdateNginxTemplateSettingsRequest {
+    pub server_name: Option<String>,
+    pub backend_port: Option<u16>,
+    pub gzip_enabled: Option<bool>,
+    pub gzip_comp_level: Option<u32>,
+    pub gzip_min_length: Option<u32>,
+    pub proxy_connect_timeout: Option<u32>,
+    pub proxy_send_timeout: Option<u32>,
+    pub proxy_read_timeout: Option<u32>,
+    pub header_x_frame_options: Option<String>,
+    pub header_x_content_type: Option<String>,
+    pub header_xss_protection: Option<String>,
+    pub header_hsts: Option<String>,
+    pub header_referrer_policy: Option<String>,
+    pub header_permissions_policy: Option<String>,
+    pub header_csp: Option<String>,
+}
 
 /// Default nginx config path
 const NGINX_SITES_AVAILABLE: &str = "/etc/nginx/sites-available";
@@ -68,12 +113,20 @@ pub async fn enable_full_proxy(
     let backend_port = payload.backend_port.unwrap_or(8080);
     let server_name = payload.server_name.unwrap_or_else(|| "_".to_string());
 
+    // Save server_name and backend_port to DB for template settings
+    let db = &state.app_state.mysql;
+    db.set_setting("nginx_server_name", Some(&server_name)).await?;
+    db.set_setting("nginx_backend_port", Some(&backend_port.to_string())).await?;
+
+    // Load full template settings from DB (now includes updated server_name/port)
+    let settings = load_template_settings_from_db(db).await?;
+
     // Find existing config or create new
     let config_path = find_config_path().await
         .unwrap_or_else(|| format!("{}/lacis-proxy", NGINX_SITES_AVAILABLE));
 
-    // Generate full proxy config
-    let config = generate_full_proxy_config(&server_name, backend_port);
+    // Generate full proxy config from DB settings
+    let config = generate_full_proxy_config_from_settings(&settings);
 
     // Backup existing config
     if let Ok(existing) = fs::read_to_string(&config_path).await {
@@ -386,9 +439,275 @@ pub async fn update_body_size(
     Ok(Json(SuccessResponse::new(&format!("Body size limit updated to {}", size))))
 }
 
-fn generate_full_proxy_config(server_name: &str, backend_port: u16) -> String {
-    format!(r#"# LacisProxyGateway2 - Full Proxy Mode
-# Generated automatically - DO NOT EDIT MANUALLY
+// ============================================================================
+// Template Settings Handlers
+// ============================================================================
+
+/// GET /api/nginx/template-settings - Get all nginx template settings from DB
+pub async fn get_nginx_template_settings(
+    State(state): State<ProxyState>,
+) -> Result<impl IntoResponse, AppError> {
+    let db = &state.app_state.mysql;
+    let settings = load_template_settings_from_db(db).await?;
+    Ok(Json(settings))
+}
+
+/// PUT /api/nginx/template-settings - Update nginx template settings (DB only, no nginx reload)
+pub async fn update_nginx_template_settings(
+    State(state): State<ProxyState>,
+    Json(payload): Json<UpdateNginxTemplateSettingsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // Validation
+    if let Some(port) = payload.backend_port {
+        if port == 0 {
+            return Err(AppError::BadRequest("backend_port must be 1-65535".to_string()));
+        }
+    }
+    if let Some(level) = payload.gzip_comp_level {
+        if !(1..=9).contains(&level) {
+            return Err(AppError::BadRequest("gzip_comp_level must be 1-9".to_string()));
+        }
+    }
+    if let Some(t) = payload.proxy_connect_timeout {
+        if t == 0 || t > 3600 {
+            return Err(AppError::BadRequest("proxy_connect_timeout must be 1-3600".to_string()));
+        }
+    }
+    if let Some(t) = payload.proxy_send_timeout {
+        if t == 0 || t > 3600 {
+            return Err(AppError::BadRequest("proxy_send_timeout must be 1-3600".to_string()));
+        }
+    }
+    if let Some(t) = payload.proxy_read_timeout {
+        if t == 0 || t > 3600 {
+            return Err(AppError::BadRequest("proxy_read_timeout must be 1-3600".to_string()));
+        }
+    }
+
+    let db = &state.app_state.mysql;
+
+    // Update only provided fields
+    if let Some(v) = &payload.server_name {
+        db.set_setting("nginx_server_name", Some(v)).await?;
+    }
+    if let Some(v) = payload.backend_port {
+        db.set_setting("nginx_backend_port", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = payload.gzip_enabled {
+        db.set_setting("nginx_gzip_enabled", Some(if v { "true" } else { "false" })).await?;
+    }
+    if let Some(v) = payload.gzip_comp_level {
+        db.set_setting("nginx_gzip_comp_level", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = payload.gzip_min_length {
+        db.set_setting("nginx_gzip_min_length", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = payload.proxy_connect_timeout {
+        db.set_setting("nginx_proxy_connect_timeout", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = payload.proxy_send_timeout {
+        db.set_setting("nginx_proxy_send_timeout", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = payload.proxy_read_timeout {
+        db.set_setting("nginx_proxy_read_timeout", Some(&v.to_string())).await?;
+    }
+    if let Some(v) = &payload.header_x_frame_options {
+        db.set_setting("nginx_header_x_frame_options", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_x_content_type {
+        db.set_setting("nginx_header_x_content_type", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_xss_protection {
+        db.set_setting("nginx_header_xss_protection", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_hsts {
+        db.set_setting("nginx_header_hsts", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_referrer_policy {
+        db.set_setting("nginx_header_referrer_policy", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_permissions_policy {
+        db.set_setting("nginx_header_permissions_policy", Some(v)).await?;
+    }
+    if let Some(v) = &payload.header_csp {
+        db.set_setting("nginx_header_csp", Some(v)).await?;
+    }
+
+    tracing::info!("Updated nginx template settings in DB");
+
+    Ok(Json(SuccessResponse::new("Nginx template settings saved")))
+}
+
+/// POST /api/nginx/regenerate - Regenerate nginx config from DB settings and reload
+pub async fn regenerate_nginx_config(
+    State(state): State<ProxyState>,
+) -> Result<impl IntoResponse, AppError> {
+    let db = &state.app_state.mysql;
+    let settings = load_template_settings_from_db(db).await?;
+
+    // Find existing config or create new
+    let config_path = find_config_path().await
+        .unwrap_or_else(|| format!("{}/lacis-proxy", NGINX_SITES_AVAILABLE));
+
+    // Generate config from DB settings
+    let config = generate_full_proxy_config_from_settings(&settings);
+
+    // Backup existing config
+    if let Ok(existing) = fs::read_to_string(&config_path).await {
+        let backup_path = format!("{}.backup.{}", config_path, chrono::Utc::now().timestamp());
+        let _ = fs::write(&backup_path, &existing).await;
+        tracing::info!("Backed up existing config to {}", backup_path);
+    }
+
+    // Write new config
+    fs::write(&config_path, &config).await
+        .map_err(|e| AppError::InternalError(format!("Failed to write nginx config: {}", e)))?;
+
+    // Ensure symlink in sites-enabled
+    let enabled_path = format!("{}/lacis-proxy", NGINX_SITES_ENABLED);
+    if !std::path::Path::new(&enabled_path).exists() {
+        let _ = std::os::unix::fs::symlink(&config_path, &enabled_path);
+    }
+
+    // Test config
+    let (valid, error) = test_nginx_config().await;
+    if !valid {
+        return Err(AppError::BadRequest(format!(
+            "Nginx config test failed. Config was NOT applied: {}",
+            error.unwrap_or_default()
+        )));
+    }
+
+    // Reload nginx
+    reload_nginx().await?;
+
+    state.notifier.notify_config_change(
+        "Nginx Config Regenerated",
+        "Nginx configuration regenerated from template settings and reloaded.",
+    ).await;
+
+    tracing::info!("Regenerated nginx config from DB template settings");
+
+    Ok(Json(SuccessResponse::new("Nginx config regenerated and reloaded successfully")))
+}
+
+// ============================================================================
+// Template Settings Helpers
+// ============================================================================
+
+/// Load NginxTemplateSettings from DB with sensible defaults
+async fn load_template_settings_from_db(db: &MySqlDb) -> Result<NginxTemplateSettings, AppError> {
+    let server_name = db.get_setting("nginx_server_name").await?
+        .unwrap_or_else(|| "_".to_string());
+    let backend_port = db.get_setting("nginx_backend_port").await?
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(8081);
+    let gzip_enabled = db.get_setting_bool("nginx_gzip_enabled").await
+        .unwrap_or(true);
+    let gzip_comp_level = db.get_setting_i32("nginx_gzip_comp_level", 6).await
+        .unwrap_or(6) as u32;
+    let gzip_min_length = db.get_setting_i32("nginx_gzip_min_length", 1024).await
+        .unwrap_or(1024) as u32;
+    let proxy_connect_timeout = db.get_setting_i32("nginx_proxy_connect_timeout", 60).await
+        .unwrap_or(60) as u32;
+    let proxy_send_timeout = db.get_setting_i32("nginx_proxy_send_timeout", 60).await
+        .unwrap_or(60) as u32;
+    let proxy_read_timeout = db.get_setting_i32("nginx_proxy_read_timeout", 60).await
+        .unwrap_or(60) as u32;
+
+    let header_x_frame_options = db.get_setting("nginx_header_x_frame_options").await?
+        .unwrap_or_else(|| "SAMEORIGIN".to_string());
+    let header_x_content_type = db.get_setting("nginx_header_x_content_type").await?
+        .unwrap_or_else(|| "nosniff".to_string());
+    let header_xss_protection = db.get_setting("nginx_header_xss_protection").await?
+        .unwrap_or_else(|| "1; mode=block".to_string());
+    let header_hsts = db.get_setting("nginx_header_hsts").await?
+        .unwrap_or_else(|| "max-age=31536000; includeSubDomains".to_string());
+    let header_referrer_policy = db.get_setting("nginx_header_referrer_policy").await?
+        .unwrap_or_else(|| "strict-origin-when-cross-origin".to_string());
+    let header_permissions_policy = db.get_setting("nginx_header_permissions_policy").await?
+        .unwrap_or_else(|| "camera=(), microphone=(), geolocation=()".to_string());
+    let header_csp = db.get_setting("nginx_header_csp").await?
+        .unwrap_or_else(|| "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-src 'self' https://maps.google.com https://www.google.com;".to_string());
+
+    Ok(NginxTemplateSettings {
+        server_name,
+        backend_port,
+        gzip_enabled,
+        gzip_comp_level,
+        gzip_min_length,
+        proxy_connect_timeout,
+        proxy_send_timeout,
+        proxy_read_timeout,
+        header_x_frame_options,
+        header_x_content_type,
+        header_xss_protection,
+        header_hsts,
+        header_referrer_policy,
+        header_permissions_policy,
+        header_csp,
+    })
+}
+
+/// Generate nginx config from NginxTemplateSettings
+fn generate_full_proxy_config_from_settings(s: &NginxTemplateSettings) -> String {
+    // Build gzip section
+    let gzip_section = if s.gzip_enabled {
+        format!(
+            r#"    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level {};
+    gzip_min_length {};
+    gzip_types text/plain text/css application/json application/javascript
+               text/xml application/xml application/xml+rss text/javascript
+               image/svg+xml application/font-woff2;"#,
+            s.gzip_comp_level, s.gzip_min_length
+        )
+    } else {
+        "    # Gzip compression (disabled)\n    gzip off;".to_string()
+    };
+
+    // Build security headers section - only emit non-empty values
+    let mut headers = Vec::new();
+    if !s.header_x_frame_options.is_empty() {
+        headers.push(format!(r#"    add_header X-Frame-Options "{}" always;"#, s.header_x_frame_options));
+    }
+    if !s.header_x_content_type.is_empty() {
+        headers.push(format!(r#"    add_header X-Content-Type-Options "{}" always;"#, s.header_x_content_type));
+    }
+    if !s.header_xss_protection.is_empty() {
+        headers.push(format!(r#"    add_header X-XSS-Protection "{}" always;"#, s.header_xss_protection));
+    }
+    if !s.header_hsts.is_empty() {
+        headers.push(format!(r#"    add_header Strict-Transport-Security "{}" always;"#, s.header_hsts));
+    }
+    if !s.header_referrer_policy.is_empty() {
+        headers.push(format!(r#"    add_header Referrer-Policy "{}" always;"#, s.header_referrer_policy));
+    }
+    if !s.header_permissions_policy.is_empty() {
+        headers.push(format!(r#"    add_header Permissions-Policy "{}" always;"#, s.header_permissions_policy));
+    }
+    if !s.header_csp.is_empty() {
+        headers.push(format!(r#"    add_header Content-Security-Policy "{}" always;"#, s.header_csp));
+    }
+
+    let security_headers_section = if headers.is_empty() {
+        "    # Security headers (all disabled)".to_string()
+    } else {
+        format!("    # Security headers\n{}", headers.join("\n"))
+    };
+
+    let server_name = &s.server_name;
+    let backend_port = s.backend_port;
+    let connect_timeout = s.proxy_connect_timeout;
+    let send_timeout = s.proxy_send_timeout;
+    let read_timeout = s.proxy_read_timeout;
+
+    format!(
+        r#"# LacisProxyGateway2 - Full Proxy Mode
+# Generated automatically from template settings - DO NOT EDIT MANUALLY
 # All routing is managed through the LacisProxyGateway2 UI
 
 server {{
@@ -417,24 +736,9 @@ server {{
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_proxied any;
-    gzip_comp_level 6;
-    gzip_min_length 1024;
-    gzip_types text/plain text/css application/json application/javascript
-               text/xml application/xml application/xml+rss text/javascript
-               image/svg+xml application/font-woff2;
+{gzip_section}
 
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-src 'self' https://maps.google.com https://www.google.com;" always;
+{security_headers_section}
 
     # Proxy all requests to LacisProxyGateway2 backend
     location / {{
@@ -452,9 +756,9 @@ server {{
         proxy_set_header Connection "upgrade";
 
         # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_connect_timeout {connect_timeout}s;
+        proxy_send_timeout {send_timeout}s;
+        proxy_read_timeout {read_timeout}s;
 
         # Buffering
         proxy_buffering off;
@@ -466,5 +770,28 @@ server {{
         root /var/www/certbot;
     }}
 }}
-"#)
+"#
+    )
+}
+
+/// Backward-compatible wrapper: builds NginxTemplateSettings with defaults and the given params
+fn generate_full_proxy_config(server_name: &str, backend_port: u16) -> String {
+    let settings = NginxTemplateSettings {
+        server_name: server_name.to_string(),
+        backend_port,
+        gzip_enabled: true,
+        gzip_comp_level: 6,
+        gzip_min_length: 1024,
+        proxy_connect_timeout: 60,
+        proxy_send_timeout: 60,
+        proxy_read_timeout: 60,
+        header_x_frame_options: "SAMEORIGIN".to_string(),
+        header_x_content_type: "nosniff".to_string(),
+        header_xss_protection: "1; mode=block".to_string(),
+        header_hsts: "max-age=31536000; includeSubDomains".to_string(),
+        header_referrer_policy: "strict-origin-when-cross-origin".to_string(),
+        header_permissions_policy: "camera=(), microphone=(), geolocation=()".to_string(),
+        header_csp: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-src 'self' https://maps.google.com https://www.google.com;".to_string(),
+    };
+    generate_full_proxy_config_from_settings(&settings)
 }

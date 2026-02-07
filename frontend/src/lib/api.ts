@@ -447,6 +447,24 @@ export interface EnableFullProxyRequest {
   server_name?: string;
 }
 
+export interface NginxTemplateSettings {
+  server_name: string;
+  backend_port: number;
+  gzip_enabled: boolean;
+  gzip_comp_level: number;
+  gzip_min_length: number;
+  proxy_connect_timeout: number;
+  proxy_send_timeout: number;
+  proxy_read_timeout: number;
+  header_x_frame_options: string;
+  header_x_content_type: string;
+  header_xss_protection: string;
+  header_hsts: string;
+  header_referrer_policy: string;
+  header_permissions_policy: string;
+  header_csp: string;
+}
+
 export const nginxApi = {
   getStatus: () => request<NginxStatus>('/nginx/status'),
 
@@ -472,5 +490,19 @@ export const nginxApi = {
     request<SuccessResponse>('/nginx/body-size', {
       method: 'PUT',
       body: JSON.stringify({ size }),
+    }),
+
+  getTemplateSettings: () =>
+    request<NginxTemplateSettings>('/nginx/template-settings'),
+
+  updateTemplateSettings: (data: Partial<NginxTemplateSettings>) =>
+    request<SuccessResponse>('/nginx/template-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  regenerateConfig: () =>
+    request<SuccessResponse>('/nginx/regenerate', {
+      method: 'POST',
     }),
 };

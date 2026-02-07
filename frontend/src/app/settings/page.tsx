@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { settingsApi, auditApi, nginxApi, RestartSettings, AuditLog, NginxStatus } from '@/lib/api';
+import { settingsApi, auditApi, nginxApi, RestartSettings, AuditLog, NginxStatus, NginxTemplateSettings } from '@/lib/api';
 import type { Setting } from '@/types';
 
 interface SettingGroup {
@@ -86,11 +86,18 @@ export default function SettingsPage() {
   const [bodySize, setBodySize] = useState('50M');
   const [updatingBodySize, setUpdatingBodySize] = useState(false);
 
+  // Nginx template settings state
+  const [templateSettings, setTemplateSettings] = useState<NginxTemplateSettings | null>(null);
+  const [editedTemplate, setEditedTemplate] = useState<NginxTemplateSettings | null>(null);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
   useEffect(() => {
     loadSettings();
     loadRestartSettings();
     loadAuditLogs();
     loadNginxStatus();
+    loadTemplateSettings();
   }, []);
 
   const loadSettings = async () => {
@@ -144,6 +151,51 @@ export default function SettingsPage() {
       console.error('Failed to load nginx status:', err);
     } finally {
       setNginxLoading(false);
+    }
+  };
+
+  const loadTemplateSettings = async () => {
+    try {
+      const data = await nginxApi.getTemplateSettings();
+      setTemplateSettings(data);
+      setEditedTemplate(data);
+    } catch (err) {
+      console.error('Failed to load template settings:', err);
+    }
+  };
+
+  const isTemplateChanged = () => {
+    if (!templateSettings || !editedTemplate) return false;
+    return JSON.stringify(templateSettings) !== JSON.stringify(editedTemplate);
+  };
+
+  const handleSaveTemplateSettings = async () => {
+    if (!editedTemplate) return;
+    setTemplateSaving(true);
+    try {
+      await nginxApi.updateTemplateSettings(editedTemplate);
+      await loadTemplateSettings();
+      alert('Template settings saved successfully');
+    } catch (err) {
+      alert('Failed to save template settings: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const handleRegenerateConfig = async () => {
+    if (!confirm('This will regenerate the nginx configuration from current settings and reload nginx.\n\nAre you sure you want to proceed?')) {
+      return;
+    }
+    setRegenerating(true);
+    try {
+      await nginxApi.regenerateConfig();
+      alert('Nginx config regenerated and reloaded successfully!');
+      await loadNginxStatus();
+    } catch (err) {
+      alert('Failed to regenerate config: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -447,6 +499,236 @@ export default function SettingsPage() {
                   >
                     Enable Full Proxy Mode
                   </Button>
+                </div>
+              )}
+
+              {/* Nginx Template Settings - full_proxy mode only */}
+              {nginxStatus.proxy_mode === 'full_proxy' && editedTemplate && (
+                <div className="p-4 bg-gray-800/50 rounded-lg space-y-6">
+                  <h3 className="text-lg font-medium">Nginx Template Settings</h3>
+                  <p className="text-sm text-gray-400">
+                    Configure nginx template parameters. Changes are saved to DB first, then applied by regenerating the config.
+                  </p>
+
+                  {/* Core */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Core</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Server Name</label>
+                        <Input
+                          type="text"
+                          value={editedTemplate.server_name}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, server_name: e.target.value })}
+                          placeholder="_"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Backend Port</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={65535}
+                          value={editedTemplate.backend_port}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, backend_port: parseInt(e.target.value) || 8081 })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gzip Compression */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Gzip Compression</h4>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={editedTemplate.gzip_enabled}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, gzip_enabled: e.target.checked })}
+                          className="rounded w-5 h-5"
+                        />
+                        <span>Enable Gzip</span>
+                      </label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm text-gray-400 block mb-1">Compression Level (1-9)</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={9}
+                            value={editedTemplate.gzip_comp_level}
+                            onChange={(e) => setEditedTemplate({ ...editedTemplate, gzip_comp_level: parseInt(e.target.value) || 6 })}
+                            disabled={!editedTemplate.gzip_enabled}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm text-gray-400 block mb-1">Min Length (bytes)</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={editedTemplate.gzip_min_length}
+                            onChange={(e) => setEditedTemplate({ ...editedTemplate, gzip_min_length: parseInt(e.target.value) || 1024 })}
+                            disabled={!editedTemplate.gzip_enabled}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Proxy Timeouts */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Proxy Timeouts</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Connect (sec)</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={3600}
+                          value={editedTemplate.proxy_connect_timeout}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, proxy_connect_timeout: parseInt(e.target.value) || 60 })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Send (sec)</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={3600}
+                          value={editedTemplate.proxy_send_timeout}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, proxy_send_timeout: parseInt(e.target.value) || 60 })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Read (sec)</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={3600}
+                          value={editedTemplate.proxy_read_timeout}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, proxy_read_timeout: parseInt(e.target.value) || 60 })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Headers */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Security Headers</h4>
+                    <p className="text-xs text-gray-500 mb-3">Empty value disables the header.</p>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">X-Frame-Options</label>
+                        <select
+                          value={editedTemplate.header_x_frame_options}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_x_frame_options: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+                        >
+                          <option value="SAMEORIGIN">SAMEORIGIN</option>
+                          <option value="DENY">DENY</option>
+                          <option value="">Disabled</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">X-Content-Type-Options</label>
+                        <select
+                          value={editedTemplate.header_x_content_type}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_x_content_type: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+                        >
+                          <option value="nosniff">nosniff</option>
+                          <option value="">Disabled</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">X-XSS-Protection</label>
+                        <Input
+                          type="text"
+                          value={editedTemplate.header_xss_protection}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_xss_protection: e.target.value })}
+                          placeholder="1; mode=block"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">HSTS (Strict-Transport-Security)</label>
+                        <Input
+                          type="text"
+                          value={editedTemplate.header_hsts}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_hsts: e.target.value })}
+                          placeholder="max-age=31536000; includeSubDomains"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Referrer-Policy</label>
+                        <select
+                          value={['no-referrer', 'no-referrer-when-downgrade', 'origin', 'origin-when-cross-origin', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin', 'unsafe-url', ''].includes(editedTemplate.header_referrer_policy) ? editedTemplate.header_referrer_policy : '__custom__'}
+                          onChange={(e) => {
+                            if (e.target.value !== '__custom__') {
+                              setEditedTemplate({ ...editedTemplate, header_referrer_policy: e.target.value });
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+                        >
+                          <option value="strict-origin-when-cross-origin">strict-origin-when-cross-origin</option>
+                          <option value="no-referrer">no-referrer</option>
+                          <option value="no-referrer-when-downgrade">no-referrer-when-downgrade</option>
+                          <option value="origin">origin</option>
+                          <option value="origin-when-cross-origin">origin-when-cross-origin</option>
+                          <option value="same-origin">same-origin</option>
+                          <option value="strict-origin">strict-origin</option>
+                          <option value="unsafe-url">unsafe-url</option>
+                          <option value="">Disabled</option>
+                          <option value="__custom__">Custom...</option>
+                        </select>
+                        {!['no-referrer', 'no-referrer-when-downgrade', 'origin', 'origin-when-cross-origin', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin', 'unsafe-url', ''].includes(editedTemplate.header_referrer_policy) && (
+                          <Input
+                            type="text"
+                            value={editedTemplate.header_referrer_policy}
+                            onChange={(e) => setEditedTemplate({ ...editedTemplate, header_referrer_policy: e.target.value })}
+                            placeholder="Custom referrer policy"
+                            className="mt-2"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Permissions-Policy</label>
+                        <Input
+                          type="text"
+                          value={editedTemplate.header_permissions_policy}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_permissions_policy: e.target.value })}
+                          placeholder="camera=(), microphone=(), geolocation=()"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 block mb-1">Content-Security-Policy</label>
+                        <textarea
+                          value={editedTemplate.header_csp}
+                          onChange={(e) => setEditedTemplate({ ...editedTemplate, header_csp: e.target.value })}
+                          placeholder="default-src 'self'; ..."
+                          rows={4}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-sm resize-y"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 pt-2">
+                    <Button
+                      onClick={handleSaveTemplateSettings}
+                      loading={templateSaving}
+                      disabled={!isTemplateChanged()}
+                    >
+                      Save Settings
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleRegenerateConfig}
+                      loading={regenerating}
+                    >
+                      Apply &amp; Regenerate Config
+                    </Button>
+                  </div>
                 </div>
               )}
 

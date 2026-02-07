@@ -109,6 +109,9 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
         .route("/api/nginx/reload", post(handlers::reload_nginx_handler))
         .route("/api/nginx/test", post(handlers::test_nginx_config_handler))
         .route("/api/nginx/body-size", put(handlers::update_body_size))
+        .route("/api/nginx/template-settings", get(handlers::get_nginx_template_settings))
+        .route("/api/nginx/template-settings", put(handlers::update_nginx_template_settings))
+        .route("/api/nginx/regenerate", post(handlers::regenerate_nginx_config))
         // Apply private network guard to all admin routes
         .layer(middleware::from_fn(admin_guard::require_private_network));
 
