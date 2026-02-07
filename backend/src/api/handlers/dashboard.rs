@@ -17,13 +17,29 @@ use crate::proxy::ProxyState;
 
 use super::security::PaginationQuery;
 
-/// GET /api/my-ip - Get the client's IP address
+/// GET /api/my-ip - Get the client's IP address and server's global IP (from DDNS last_ip)
 pub async fn get_my_ip(
+    State(state): State<ProxyState>,
     headers: HeaderMap,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
     let ip = extract_client_ip(&headers, addr);
-    Json(serde_json::json!({ "ip": ip }))
+
+    // サーバーのグローバルIPをDDNS last_ipから動的に取得（ハードコード禁止）
+    let server_ip = state
+        .app_state
+        .mysql
+        .list_ddns()
+        .await
+        .ok()
+        .and_then(|configs| {
+            configs
+                .into_iter()
+                .find(|c| c.status == crate::models::DdnsStatus::Active)
+                .and_then(|c| c.last_ip)
+        });
+
+    Json(serde_json::json!({ "ip": ip, "server_ip": server_ip }))
 }
 
 /// Dashboard stats query with IP exclusion parameters

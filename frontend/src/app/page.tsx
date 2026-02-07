@@ -27,9 +27,16 @@ export default function Dashboard() {
 
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
+  const [serverIp, setServerIp] = useState<string>('');
   const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
+    }
+    return true;
+  });
+  const [excludeServerIp, setExcludeServerIp] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_server_ip') !== 'false'; // デフォルトON
     }
     return true;
   });
@@ -40,9 +47,12 @@ export default function Dashboard() {
     return false;
   });
 
-  // 自分のIPを取得
+  // 自分のIP + サーバーのグローバルIPを取得（DDNSから動的取得）
   useEffect(() => {
-    dashboardApi.getMyIp().then(r => setMyIp(r.ip)).catch(() => {});
+    dashboardApi.getMyIp().then(r => {
+      setMyIp(r.ip);
+      if (r.server_ip) setServerIp(r.server_ip);
+    }).catch(() => {});
   }, []);
 
   // localStorage 永続化
@@ -50,13 +60,19 @@ export default function Dashboard() {
     localStorage.setItem('lpg_exclude_my_ip', String(excludeMyIp));
   }, [excludeMyIp]);
   useEffect(() => {
+    localStorage.setItem('lpg_exclude_server_ip', String(excludeServerIp));
+  }, [excludeServerIp]);
+  useEffect(() => {
     localStorage.setItem('lpg_exclude_lan', String(excludeLan));
   }, [excludeLan]);
 
-  // 除外パラメータ構築ヘルパー
+  // 除外パラメータ構築ヘルパー（複数IPをカンマ区切り）
   const buildExclusionParams = (): IpExclusionParams => {
     const params: IpExclusionParams = {};
-    if (excludeMyIp && myIp) params.exclude_ips = myIp;
+    const ips: string[] = [];
+    if (excludeMyIp && myIp) ips.push(myIp);
+    if (excludeServerIp && serverIp && !ips.includes(serverIp)) ips.push(serverIp);
+    if (ips.length > 0) params.exclude_ips = ips.join(',');
     if (excludeLan) params.exclude_lan = true;
     return params;
   };
@@ -67,7 +83,7 @@ export default function Dashboard() {
     const interval = setInterval(loadDashboard, 30000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [excludeMyIp, excludeLan, myIp]);
+  }, [excludeMyIp, excludeServerIp, excludeLan, myIp, serverIp]);
 
   const loadDashboard = async () => {
     try {
@@ -495,6 +511,18 @@ export default function Dashboard() {
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
+              checked={excludeServerIp}
+              onChange={(e) => setExcludeServerIp(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">
+              LPGのグローバルIPを除外
+              {serverIp && <code className="ml-1 text-xs text-gray-400">({serverIp})</code>}
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
               checked={excludeLan}
               onChange={(e) => setExcludeLan(e.target.checked)}
               className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
@@ -588,6 +616,23 @@ export default function Dashboard() {
       {/* Top IPs & Top Paths */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <Card title="Top IPs (24h)">
+          <div className="flex flex-wrap items-center gap-4 mb-3 pb-3 border-b border-gray-800 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={excludeMyIp} onChange={(e) => setExcludeMyIp(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+              <span>自分{myIp && <code className="text-gray-500 ml-0.5">({myIp})</code>}</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={excludeServerIp} onChange={(e) => setExcludeServerIp(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+              <span>LPG{serverIp && <code className="text-gray-500 ml-0.5">({serverIp})</code>}</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={excludeLan} onChange={(e) => setExcludeLan(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0" />
+              <span>LAN</span>
+            </label>
+          </div>
           <div className="space-y-2">
             {topIps.length > 0 ? topIps.map((entry, i) => (
               <div key={entry.key} className="flex items-center justify-between text-sm py-1 border-b border-gray-800 last:border-0">

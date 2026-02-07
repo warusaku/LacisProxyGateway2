@@ -45,9 +45,16 @@ export default function LogsPage() {
 
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
+  const [serverIp, setServerIp] = useState<string>('');
   const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
+    }
+    return true;
+  });
+  const [excludeServerIp, setExcludeServerIp] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_server_ip') !== 'false'; // デフォルトON
     }
     return true;
   });
@@ -58,9 +65,12 @@ export default function LogsPage() {
     return false;
   });
 
-  // 自分のIPを取得
+  // 自分のIP + サーバーのグローバルIPを取得（DDNSから動的取得）
   useEffect(() => {
-    dashboardApi.getMyIp().then(r => setMyIp(r.ip)).catch(() => {});
+    dashboardApi.getMyIp().then(r => {
+      setMyIp(r.ip);
+      if (r.server_ip) setServerIp(r.server_ip);
+    }).catch(() => {});
   }, []);
 
   // localStorage 永続化
@@ -68,16 +78,22 @@ export default function LogsPage() {
     localStorage.setItem('lpg_exclude_my_ip', String(excludeMyIp));
   }, [excludeMyIp]);
   useEffect(() => {
+    localStorage.setItem('lpg_exclude_server_ip', String(excludeServerIp));
+  }, [excludeServerIp]);
+  useEffect(() => {
     localStorage.setItem('lpg_exclude_lan', String(excludeLan));
   }, [excludeLan]);
 
-  // 除外パラメータ構築ヘルパー
+  // 除外パラメータ構築ヘルパー（複数IPをカンマ区切り）
   const buildExclusionParams = useCallback((): IpExclusionParams => {
     const params: IpExclusionParams = {};
-    if (excludeMyIp && myIp) params.exclude_ips = myIp;
+    const ips: string[] = [];
+    if (excludeMyIp && myIp) ips.push(myIp);
+    if (excludeServerIp && serverIp && !ips.includes(serverIp)) ips.push(serverIp);
+    if (ips.length > 0) params.exclude_ips = ips.join(',');
     if (excludeLan) params.exclude_lan = true;
     return params;
-  }, [excludeMyIp, excludeLan, myIp]);
+  }, [excludeMyIp, excludeServerIp, excludeLan, myIp, serverIp]);
 
   // Filter state
   const [fromDate, setFromDate] = useState('');
@@ -262,6 +278,18 @@ export default function LogsPage() {
             <span className="text-sm">
               自分のIPを除外
               {myIp && <code className="ml-1 text-xs text-gray-400">({myIp})</code>}
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeServerIp}
+              onChange={(e) => { setExcludeServerIp(e.target.checked); setPage(1); }}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">
+              LPGのグローバルIPを除外
+              {serverIp && <code className="ml-1 text-xs text-gray-400">({serverIp})</code>}
             </span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer select-none">

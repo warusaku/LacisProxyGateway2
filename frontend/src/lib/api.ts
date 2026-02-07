@@ -287,7 +287,7 @@ function appendExclusionParams(query: URLSearchParams, params?: IpExclusionParam
 }
 
 export const dashboardApi = {
-  getMyIp: () => request<{ ip: string }>('/my-ip'),
+  getMyIp: () => request<{ ip: string; server_ip?: string }>('/my-ip'),
 
   getStats: (exclusion?: IpExclusionParams) => {
     const query = new URLSearchParams();
