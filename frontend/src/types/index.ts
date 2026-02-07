@@ -171,6 +171,12 @@ export interface AccessLog {
   response_size?: number;
   user_agent?: string;
   referer?: string;
+  // GeoIP fields (optional, populated when GeoIP DB is available)
+  country_code?: string;
+  country?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface StatusDistribution {

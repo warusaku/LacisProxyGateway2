@@ -277,6 +277,17 @@ pub struct AccessLog {
     pub response_size: Option<i32>,
     pub user_agent: Option<String>,
     pub referer: Option<String>,
+    // GeoIP fields (all optional for backward compatibility with existing documents)
+    #[serde(default)]
+    pub country_code: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
 }
 
 // ============================================================================

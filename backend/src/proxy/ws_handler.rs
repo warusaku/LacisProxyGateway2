@@ -252,6 +252,9 @@ async fn log_ws_access(
     user_agent: Option<&str>,
     referer: Option<&str>,
 ) {
+    // GeoIP lookup (non-blocking, memory-mapped read)
+    let geo = state.geoip.as_ref().and_then(|reader| reader.lookup(ip));
+
     let log = AccessLog {
         timestamp: Utc::now(),
         ip: ip.to_string(),
@@ -265,6 +268,11 @@ async fn log_ws_access(
         response_size: None,
         user_agent: user_agent.map(|s| s.to_string()),
         referer: referer.map(|s| s.to_string()),
+        country_code: geo.as_ref().and_then(|g| g.country_code.clone()),
+        country: geo.as_ref().and_then(|g| g.country.clone()),
+        city: geo.as_ref().and_then(|g| g.city.clone()),
+        latitude: geo.as_ref().and_then(|g| g.latitude),
+        longitude: geo.as_ref().and_then(|g| g.longitude),
     };
 
     if let Err(e) = state.app_state.mongo.log_access(&log).await {

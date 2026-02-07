@@ -7,6 +7,7 @@ import { Table } from '@/components/ui/Table';
 import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
 import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution } from '@/types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { countryCodeToFlag } from '@/lib/geo';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -159,6 +160,17 @@ export default function Dashboard() {
       header: 'IP',
       render: (log: AccessLog) => (
         <code className="text-sm">{log.ip}</code>
+      ),
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (log: AccessLog) => (
+        <span className="text-sm whitespace-nowrap">
+          {log.country_code
+            ? `${countryCodeToFlag(log.country_code)} ${log.city || log.country || log.country_code}`
+            : '-'}
+        </span>
       ),
     },
   ];

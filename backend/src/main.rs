@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod ddns;
 mod error;
+mod geoip;
 mod health;
 mod models;
 mod notify;
@@ -53,8 +54,13 @@ async fn main() -> anyhow::Result<()> {
     // Initialize notifier
     let notifier = Arc::new(DiscordNotifier::new(app_state.clone()));
 
-    // Initialize proxy state (includes DdnsUpdater)
-    let proxy_state = ProxyState::new(app_state.clone(), notifier.clone()).await?;
+    // Initialize proxy state (includes DdnsUpdater and optional GeoIP)
+    let proxy_state = ProxyState::new(
+        app_state.clone(),
+        notifier.clone(),
+        config.server.geoip_db_path.as_deref(),
+    )
+    .await?;
     let route_count = proxy_state.router.read().await.len();
     tracing::info!(
         "Proxy router initialized with {} active routes",

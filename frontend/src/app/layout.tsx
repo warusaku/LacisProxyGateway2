@@ -35,9 +35,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-background text-text">
         <ToastProvider>
-          <div className="flex min-h-screen">
+          <div className="flex h-screen overflow-hidden">
             {/* Sidebar */}
-            <aside className="w-64 bg-card border-r border-border p-4 flex flex-col">
+            <aside className="w-64 bg-card border-r border-border p-4 flex flex-col shrink-0 overflow-y-auto">
               <h1 className="text-xl font-bold mb-8 text-blue-400">LacisProxyGateway2</h1>
               <nav className="space-y-1 flex-1">
                 {navItems.map((item) => (
@@ -74,7 +74,7 @@ export default function RootLayout({
             </aside>
 
             {/* Main content */}
-            <main className="flex-1 p-8 overflow-auto">
+            <main className="flex-1 p-8 overflow-y-auto">
               {children}
             </main>
           </div>

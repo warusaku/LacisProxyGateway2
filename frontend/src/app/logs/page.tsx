@@ -7,8 +7,10 @@ import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
 import { Pagination } from '@/components/ui/Pagination';
 import { dashboardApi } from '@/lib/api';
+import { countryCodeToFlag } from '@/lib/geo';
 import type { AccessLog, AccessLogSearchParams, ErrorSummary } from '@/types';
 
 const PER_PAGE = 50;
@@ -38,6 +40,7 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'search' | 'errors'>('search');
   const [errorSummary, setErrorSummary] = useState<ErrorSummary[]>([]);
+  const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
 
   // Filter state
   const [fromDate, setFromDate] = useState('');
@@ -181,6 +184,17 @@ export default function LogsPage() {
       ),
     },
     {
+      key: 'location',
+      header: 'Location',
+      render: (log: AccessLog) => (
+        <span className="text-sm whitespace-nowrap">
+          {log.country_code
+            ? `${countryCodeToFlag(log.country_code)} ${log.city || log.country || log.country_code}`
+            : '-'}
+        </span>
+      ),
+    },
+    {
       key: 'user_agent',
       header: 'User Agent',
       render: (log: AccessLog) => (
@@ -276,6 +290,7 @@ export default function LogsPage() {
                 data={logs}
                 keyExtractor={(log) => `${log.timestamp}-${log.ip}-${log.path}-${log.status}`}
                 emptyMessage="No logs found"
+                onRowClick={(log) => setSelectedLog(log)}
               />
               <Pagination
                 total={total}
@@ -316,6 +331,98 @@ export default function LogsPage() {
           )}
         </div>
       )}
+      {/* Log Detail Modal */}
+      <Modal
+        isOpen={selectedLog !== null}
+        onClose={() => setSelectedLog(null)}
+        title="Log Detail"
+      >
+        {selectedLog && (
+          <div className="space-y-4 text-sm">
+            {/* Request Info */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Request</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-gray-500">Time</span>
+                  <div>{new Date(selectedLog.timestamp).toLocaleString()}</div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Method</span>
+                  <div className="font-mono">{selectedLog.method}</div>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-gray-500">Path</span>
+                  <div className="font-mono break-all">{selectedLog.path}</div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Status</span>
+                  <div className={`font-mono font-bold ${getStatusColor(selectedLog.status)}`}>
+                    {selectedLog.status}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Response Time</span>
+                  <div>{selectedLog.response_time_ms}ms</div>
+                </div>
+                {selectedLog.target && (
+                  <div className="col-span-2">
+                    <span className="text-gray-500">Target</span>
+                    <div className="font-mono text-blue-400">{selectedLog.target}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Client Info */}
+            <div className="pt-3 border-t border-border">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Client</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-gray-500">IP</span>
+                  <div className="font-mono">{selectedLog.ip}</div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Referer</span>
+                  <div className="truncate">{selectedLog.referer || '-'}</div>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-gray-500">User Agent</span>
+                  <div className="text-xs break-all text-gray-300">{selectedLog.user_agent || '-'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* GeoIP Info */}
+            {selectedLog.country_code && (
+              <div className="pt-3 border-t border-border">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">Location</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-gray-500">Country</span>
+                    <div>
+                      {countryCodeToFlag(selectedLog.country_code)}{' '}
+                      {selectedLog.country || selectedLog.country_code}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">City</span>
+                    <div>{selectedLog.city || '-'}</div>
+                  </div>
+                  {selectedLog.latitude != null && selectedLog.longitude != null && (
+                    <div className="col-span-2">
+                      <span className="text-gray-500">Coordinates</span>
+                      <div className="font-mono text-xs">
+                        {selectedLog.latitude.toFixed(4)}, {selectedLog.longitude.toFixed(4)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

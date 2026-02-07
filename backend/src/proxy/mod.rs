@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 
 use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
+use crate::geoip::GeoIpReader;
 use crate::notify::DiscordNotifier;
 
 /// Shared proxy router state
@@ -22,10 +23,15 @@ pub struct ProxyState {
     pub http_client: reqwest::Client,
     pub ddns_updater: Arc<DdnsUpdater>,
     pub notifier: Arc<DiscordNotifier>,
+    pub geoip: Option<Arc<GeoIpReader>>,
 }
 
 impl ProxyState {
-    pub async fn new(app_state: AppState, notifier: Arc<DiscordNotifier>) -> anyhow::Result<Self> {
+    pub async fn new(
+        app_state: AppState,
+        notifier: Arc<DiscordNotifier>,
+        geoip_db_path: Option<&str>,
+    ) -> anyhow::Result<Self> {
         // Load initial routes from database (with DDNS hostname info)
         let routes = app_state.mysql.list_active_routes_with_ddns().await?;
         let router = ProxyRouter::new(routes);
@@ -40,12 +46,24 @@ impl ProxyState {
         // Create DDNS updater
         let ddns_updater = Arc::new(DdnsUpdater::new(app_state.clone(), notifier.clone()));
 
+        // Initialize GeoIP reader (optional, non-fatal on failure)
+        let geoip = geoip_db_path.and_then(|path| {
+            match GeoIpReader::open(path) {
+                Ok(reader) => Some(Arc::new(reader)),
+                Err(e) => {
+                    tracing::warn!("GeoIP database not available: {} (path: {})", e, path);
+                    None
+                }
+            }
+        });
+
         Ok(Self {
             router: Arc::new(RwLock::new(router)),
             app_state,
             http_client,
             ddns_updater,
             notifier,
+            geoip,
         })
     }
 

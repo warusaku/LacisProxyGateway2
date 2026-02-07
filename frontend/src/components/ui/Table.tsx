@@ -11,9 +11,10 @@ interface TableProps<T> {
   data: T[];
   keyExtractor: (item: T) => string | number;
   emptyMessage?: string;
+  onRowClick?: (item: T) => void;
 }
 
-export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No data' }: TableProps<T>) {
+export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No data', onRowClick }: TableProps<T>) {
   if (data.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
@@ -41,7 +42,8 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No data'
           {data.map((item) => (
             <tr
               key={keyExtractor(item)}
-              className="border-b border-border hover:bg-gray-800/50 transition-colors"
+              className={`border-b border-border hover:bg-gray-800/50 transition-colors${onRowClick ? ' cursor-pointer' : ''}`}
+              onClick={onRowClick ? () => onRowClick(item) : undefined}
             >
               {columns.map((col) => (
                 <td key={col.key} className="px-4 py-3">

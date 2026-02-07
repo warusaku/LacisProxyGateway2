@@ -15,6 +15,8 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default)]
+    pub geoip_db_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +49,7 @@ impl Config {
             server: ServerConfig {
                 host: default_host(),
                 port: default_port(),
+                geoip_db_path: None,
             },
             database: DatabaseConfig {
                 mysql_url: None,
