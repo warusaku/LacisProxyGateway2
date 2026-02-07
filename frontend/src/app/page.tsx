@@ -612,7 +612,7 @@ export default function Dashboard() {
         </Card>
 
         <Card title="Recent Access Log">
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="max-h-[400px] overflow-auto">
             <Table
               columns={logColumns}
               data={logs}
