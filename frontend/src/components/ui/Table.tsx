@@ -25,7 +25,7 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No data'
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="min-w-full">
         <thead>
           <tr className="border-b border-border">
             {columns.map((col) => (
