@@ -1,6 +1,6 @@
 //! API module - HTTP handlers and routes
 
-mod admin_guard;
+pub(crate) mod admin_guard;
 pub mod handlers;
 
 use axum::{
@@ -67,6 +67,8 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
         )
         // Audit
         .route("/api/audit", get(handlers::get_audit_logs))
+        // My IP (client IP detection)
+        .route("/api/my-ip", get(handlers::get_my_ip))
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/dashboard/access-log", get(handlers::get_access_log))

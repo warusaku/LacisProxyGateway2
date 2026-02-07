@@ -1,28 +1,58 @@
 //! Dashboard handlers
 
 use axum::{
-    extract::{Query, State},
-    http::{header, StatusCode},
+    extract::{ConnectInfo, Query, State},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
+use crate::api::admin_guard::extract_client_ip;
 use crate::error::AppError;
 use crate::models::{AccessLogSearchQuery, DashboardStats, RouteHealth};
 use crate::proxy::ProxyState;
 
 use super::security::PaginationQuery;
 
+/// GET /api/my-ip - Get the client's IP address
+pub async fn get_my_ip(
+    headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers, addr);
+    Json(serde_json::json!({ "ip": ip }))
+}
+
+/// Dashboard stats query with IP exclusion parameters
+#[derive(Debug, Deserialize)]
+pub struct DashboardStatsQuery {
+    pub exclude_ips: Option<String>,
+    pub exclude_lan: Option<bool>,
+}
+
+/// Dashboard pagination query with IP exclusion parameters
+#[derive(Debug, Deserialize)]
+pub struct DashboardPaginationQuery {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+    pub exclude_ips: Option<String>,
+    pub exclude_lan: Option<bool>,
+}
+
 /// GET /api/dashboard/stats - Get dashboard statistics
 pub async fn get_dashboard_stats(
     State(state): State<ProxyState>,
+    Query(query): Query<DashboardStatsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let total_requests_today = state
         .app_state
         .mongo
-        .get_today_request_count()
+        .get_today_request_count(&query.exclude_ips, &query.exclude_lan)
         .await
         .unwrap_or(0);
     let active_routes = state
@@ -63,12 +93,12 @@ pub async fn get_dashboard_stats(
 /// GET /api/dashboard/access-log - Get recent access logs
 pub async fn get_access_log(
     State(state): State<ProxyState>,
-    Query(pagination): Query<PaginationQuery>,
+    Query(pagination): Query<DashboardPaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let logs = state
         .app_state
         .mongo
-        .get_access_logs(pagination.limit, pagination.offset)
+        .get_access_logs(pagination.limit, pagination.offset, &pagination.exclude_ips, &pagination.exclude_lan)
         .await?;
 
     Ok(Json(logs))
@@ -245,11 +275,12 @@ pub struct StatusDistribution {
 /// GET /api/dashboard/status-distribution - Get request status code distribution
 pub async fn get_status_distribution(
     State(state): State<ProxyState>,
+    Query(query): Query<DashboardStatsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let distribution = state
         .app_state
         .mongo
-        .get_today_status_distribution()
+        .get_today_status_distribution(&query.exclude_ips, &query.exclude_lan)
         .await?;
 
     let result: Vec<StatusDistribution> = distribution
@@ -291,6 +322,8 @@ pub async fn get_filtered_access_log(
     State(state): State<ProxyState>,
     Query(filter): Query<LogFilterQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    let none_str: Option<String> = None;
+    let none_bool: Option<bool> = None;
     let logs = if let Some(ref path) = filter.path {
         state
             .app_state
@@ -307,7 +340,7 @@ pub async fn get_filtered_access_log(
         state
             .app_state
             .mongo
-            .get_access_logs(filter.limit, 0)
+            .get_access_logs(filter.limit, 0, &none_str, &none_bool)
             .await?
     };
 
@@ -818,6 +851,8 @@ pub struct TimeRangeQuery {
     pub from: Option<String>,
     pub to: Option<String>,
     pub limit: Option<i64>,
+    pub exclude_ips: Option<String>,
+    pub exclude_lan: Option<bool>,
 }
 
 /// GET /api/dashboard/access-log/search - Advanced log search
@@ -853,7 +888,7 @@ pub async fn get_hourly_stats(
     let stats = state
         .app_state
         .mongo
-        .get_hourly_stats(from, to)
+        .get_hourly_stats(from, to, &query.exclude_ips, &query.exclude_lan)
         .await?;
 
     Ok(Json(stats))
@@ -879,7 +914,7 @@ pub async fn get_top_ips(
     let entries = state
         .app_state
         .mongo
-        .get_top_ips(from, to, limit)
+        .get_top_ips(from, to, limit, &query.exclude_ips, &query.exclude_lan)
         .await?;
 
     Ok(Json(entries))
@@ -905,7 +940,7 @@ pub async fn get_top_paths(
     let entries = state
         .app_state
         .mongo
-        .get_top_paths(from, to, limit)
+        .get_top_paths(from, to, limit, &query.exclude_ips, &query.exclude_lan)
         .await?;
 
     Ok(Json(entries))
@@ -930,7 +965,7 @@ pub async fn get_error_summary(
     let summary = state
         .app_state
         .mongo
-        .get_error_summary(from, to)
+        .get_error_summary(from, to, &query.exclude_ips, &query.exclude_lan)
         .await?;
 
     Ok(Json(summary))
@@ -952,6 +987,8 @@ pub async fn export_access_log(
         path: query.path,
         limit: query.limit.min(10000),
         offset: 0,
+        exclude_ips: query.exclude_ips,
+        exclude_lan: query.exclude_lan,
     };
     if export_query.limit == 0 {
         export_query.limit = 10000;

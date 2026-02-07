@@ -22,6 +22,7 @@ import type {
   AccessLogSearchResult,
   AccessLogSearchParams,
   SecurityEventSearchParams,
+  IpExclusionParams,
 } from '@/types';
 
 const API_BASE = '/LacisProxyGateway2/api';
@@ -279,11 +280,29 @@ export interface ServerHealth {
   };
 }
 
-export const dashboardApi = {
-  getStats: () => request<DashboardStats>('/dashboard/stats'),
+/** Append IP exclusion params to a URLSearchParams instance */
+function appendExclusionParams(query: URLSearchParams, params?: IpExclusionParams) {
+  if (params?.exclude_ips) query.set('exclude_ips', params.exclude_ips);
+  if (params?.exclude_lan) query.set('exclude_lan', 'true');
+}
 
-  getAccessLog: (limit = 50, offset = 0) =>
-    request<AccessLog[]>(`/dashboard/access-log?limit=${limit}&offset=${offset}`),
+export const dashboardApi = {
+  getMyIp: () => request<{ ip: string }>('/my-ip'),
+
+  getStats: (exclusion?: IpExclusionParams) => {
+    const query = new URLSearchParams();
+    appendExclusionParams(query, exclusion);
+    const qs = query.toString();
+    return request<DashboardStats>(`/dashboard/stats${qs ? `?${qs}` : ''}`);
+  },
+
+  getAccessLog: (limit = 50, offset = 0, exclusion?: IpExclusionParams) => {
+    const query = new URLSearchParams();
+    query.set('limit', limit.toString());
+    query.set('offset', offset.toString());
+    appendExclusionParams(query, exclusion);
+    return request<AccessLog[]>(`/dashboard/access-log?${query}`);
+  },
 
   getFilteredAccessLog: (params: { limit?: number; path?: string; ip?: string }) => {
     const query = new URLSearchParams();
@@ -295,7 +314,12 @@ export const dashboardApi = {
 
   getHealth: () => request<RouteHealth[]>('/dashboard/health'),
 
-  getStatusDistribution: () => request<StatusDistribution[]>('/dashboard/status-distribution'),
+  getStatusDistribution: (exclusion?: IpExclusionParams) => {
+    const query = new URLSearchParams();
+    appendExclusionParams(query, exclusion);
+    const qs = query.toString();
+    return request<StatusDistribution[]>(`/dashboard/status-distribution${qs ? `?${qs}` : ''}`);
+  },
 
   getSslStatus: () => request<SslStatus>('/dashboard/ssl-status'),
 
@@ -312,36 +336,42 @@ export const dashboardApi = {
     if (params.path) query.set('path', params.path);
     if (params.limit !== undefined) query.set('limit', params.limit.toString());
     if (params.offset !== undefined) query.set('offset', params.offset.toString());
+    if (params.exclude_ips) query.set('exclude_ips', params.exclude_ips);
+    if (params.exclude_lan) query.set('exclude_lan', 'true');
     return request<AccessLogSearchResult>(`/dashboard/access-log/search?${query}`);
   },
 
-  getHourlyStats: (from?: string, to?: string) => {
+  getHourlyStats: (from?: string, to?: string, exclusion?: IpExclusionParams) => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);
     if (to) query.set('to', to);
+    appendExclusionParams(query, exclusion);
     return request<HourlyStat[]>(`/dashboard/hourly-stats?${query}`);
   },
 
-  getTopIps: (from?: string, to?: string, limit?: number) => {
+  getTopIps: (from?: string, to?: string, limit?: number, exclusion?: IpExclusionParams) => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);
     if (to) query.set('to', to);
     if (limit) query.set('limit', limit.toString());
+    appendExclusionParams(query, exclusion);
     return request<TopEntry[]>(`/dashboard/top-ips?${query}`);
   },
 
-  getTopPaths: (from?: string, to?: string, limit?: number) => {
+  getTopPaths: (from?: string, to?: string, limit?: number, exclusion?: IpExclusionParams) => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);
     if (to) query.set('to', to);
     if (limit) query.set('limit', limit.toString());
+    appendExclusionParams(query, exclusion);
     return request<TopEntry[]>(`/dashboard/top-paths?${query}`);
   },
 
-  getErrorSummary: (from?: string, to?: string) => {
+  getErrorSummary: (from?: string, to?: string, exclusion?: IpExclusionParams) => {
     const query = new URLSearchParams();
     if (from) query.set('from', from);
     if (to) query.set('to', to);
+    appendExclusionParams(query, exclusion);
     return request<ErrorSummary[]>(`/dashboard/error-summary?${query}`);
   },
 
@@ -355,6 +385,8 @@ export const dashboardApi = {
     if (params.ip) query.set('ip', params.ip);
     if (params.path) query.set('path', params.path);
     if (params.limit !== undefined) query.set('limit', params.limit.toString());
+    if (params.exclude_ips) query.set('exclude_ips', params.exclude_ips);
+    if (params.exclude_lan) query.set('exclude_lan', 'true');
     const response = await fetch(`${API_BASE}/dashboard/access-log/export?${query}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();

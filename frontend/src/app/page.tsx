@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
 import { LogDetailModal } from '@/components/LogDetailModal';
 import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
-import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution } from '@/types';
+import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution, IpExclusionParams } from '@/types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { getStatusColor } from '@/lib/format';
 import { countryCodeToFlag } from '@/lib/geo';
@@ -25,19 +25,57 @@ export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // IP exclusion filter state
+  const [myIp, setMyIp] = useState<string>('');
+  const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
+    }
+    return true;
+  });
+  const [excludeLan, setExcludeLan] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_lan') === 'true'; // デフォルトOFF
+    }
+    return false;
+  });
+
+  // 自分のIPを取得
+  useEffect(() => {
+    dashboardApi.getMyIp().then(r => setMyIp(r.ip)).catch(() => {});
+  }, []);
+
+  // localStorage 永続化
+  useEffect(() => {
+    localStorage.setItem('lpg_exclude_my_ip', String(excludeMyIp));
+  }, [excludeMyIp]);
+  useEffect(() => {
+    localStorage.setItem('lpg_exclude_lan', String(excludeLan));
+  }, [excludeLan]);
+
+  // 除外パラメータ構築ヘルパー
+  const buildExclusionParams = (): IpExclusionParams => {
+    const params: IpExclusionParams = {};
+    if (excludeMyIp && myIp) params.exclude_ips = myIp;
+    if (excludeLan) params.exclude_lan = true;
+    return params;
+  };
+
   useEffect(() => {
     loadDashboard();
     // Auto-refresh every 30 seconds
     const interval = setInterval(loadDashboard, 30000);
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [excludeMyIp, excludeLan, myIp]);
 
   const loadDashboard = async () => {
     try {
+      const exclusion = buildExclusionParams();
       const [statsData, healthData, logsData, networkData, sslData, serverHealthData] = await Promise.all([
-        dashboardApi.getStats(),
+        dashboardApi.getStats(exclusion),
         dashboardApi.getHealth(),
-        dashboardApi.getAccessLog(20),
+        dashboardApi.getAccessLog(20, 0, exclusion),
         omadaApi.getStatus().catch(() => null),
         dashboardApi.getSslStatus().catch(() => null),
         dashboardApi.getServerHealth().catch(() => null),
@@ -51,10 +89,10 @@ export default function Dashboard() {
 
       // Load analytics data (non-blocking)
       Promise.all([
-        dashboardApi.getHourlyStats().catch(() => []),
-        dashboardApi.getStatusDistribution().catch(() => []),
-        dashboardApi.getTopIps(undefined, undefined, 10).catch(() => []),
-        dashboardApi.getTopPaths(undefined, undefined, 10).catch(() => []),
+        dashboardApi.getHourlyStats(undefined, undefined, exclusion).catch(() => []),
+        dashboardApi.getStatusDistribution(exclusion).catch(() => []),
+        dashboardApi.getTopIps(undefined, undefined, 10, exclusion).catch(() => []),
+        dashboardApi.getTopPaths(undefined, undefined, 10, exclusion).catch(() => []),
       ]).then(([hourly, dist, ips, paths]) => {
         setHourlyStats(hourly);
         setStatusDist(dist);
@@ -438,6 +476,33 @@ export default function Dashboard() {
           </div>
         </Card>
       )}
+
+      {/* IP Exclusion Filter */}
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center gap-6">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeMyIp}
+              onChange={(e) => setExcludeMyIp(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">
+              自分のIPを除外
+              {myIp && <code className="ml-1 text-xs text-gray-400">({myIp})</code>}
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeLan}
+              onChange={(e) => setExcludeLan(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">LANアクセスを除外</span>
+          </label>
+        </div>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">

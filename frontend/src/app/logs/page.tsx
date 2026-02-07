@@ -12,7 +12,7 @@ import { LogDetailModal } from '@/components/LogDetailModal';
 import { dashboardApi } from '@/lib/api';
 import { getStatusColor } from '@/lib/format';
 import { countryCodeToFlag } from '@/lib/geo';
-import type { AccessLog, AccessLogSearchParams, ErrorSummary } from '@/types';
+import type { AccessLog, AccessLogSearchParams, ErrorSummary, IpExclusionParams } from '@/types';
 
 const PER_PAGE = 50;
 
@@ -43,6 +43,42 @@ export default function LogsPage() {
   const [errorSummary, setErrorSummary] = useState<ErrorSummary[]>([]);
   const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
 
+  // IP exclusion filter state
+  const [myIp, setMyIp] = useState<string>('');
+  const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
+    }
+    return true;
+  });
+  const [excludeLan, setExcludeLan] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lpg_exclude_lan') === 'true'; // デフォルトOFF
+    }
+    return false;
+  });
+
+  // 自分のIPを取得
+  useEffect(() => {
+    dashboardApi.getMyIp().then(r => setMyIp(r.ip)).catch(() => {});
+  }, []);
+
+  // localStorage 永続化
+  useEffect(() => {
+    localStorage.setItem('lpg_exclude_my_ip', String(excludeMyIp));
+  }, [excludeMyIp]);
+  useEffect(() => {
+    localStorage.setItem('lpg_exclude_lan', String(excludeLan));
+  }, [excludeLan]);
+
+  // 除外パラメータ構築ヘルパー
+  const buildExclusionParams = useCallback((): IpExclusionParams => {
+    const params: IpExclusionParams = {};
+    if (excludeMyIp && myIp) params.exclude_ips = myIp;
+    if (excludeLan) params.exclude_lan = true;
+    return params;
+  }, [excludeMyIp, excludeLan, myIp]);
+
   // Filter state
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -52,9 +88,11 @@ export default function LogsPage() {
   const [path, setPath] = useState('');
 
   const buildSearchParams = useCallback((): AccessLogSearchParams => {
+    const exclusion = buildExclusionParams();
     const params: AccessLogSearchParams = {
       limit: PER_PAGE,
       offset: (page - 1) * PER_PAGE,
+      ...exclusion,
     };
     if (fromDate) params.from = new Date(fromDate).toISOString();
     if (toDate) params.to = new Date(toDate).toISOString();
@@ -67,7 +105,7 @@ export default function LogsPage() {
     if (ip) params.ip = ip;
     if (path) params.path = path;
     return params;
-  }, [page, fromDate, toDate, method, statusRange, ip, path]);
+  }, [page, fromDate, toDate, method, statusRange, ip, path, buildExclusionParams]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -84,15 +122,16 @@ export default function LogsPage() {
 
   const loadErrorSummary = useCallback(async () => {
     try {
+      const exclusion = buildExclusionParams();
       const params: { from?: string; to?: string } = {};
       if (fromDate) params.from = new Date(fromDate).toISOString();
       if (toDate) params.to = new Date(toDate).toISOString();
-      const summary = await dashboardApi.getErrorSummary(params.from, params.to);
+      const summary = await dashboardApi.getErrorSummary(params.from, params.to, exclusion);
       setErrorSummary(summary);
     } catch (err) {
       console.error('Failed to load error summary:', err);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, buildExclusionParams]);
 
   useEffect(() => {
     loadLogs();
@@ -209,6 +248,33 @@ export default function LogsPage() {
           </Button>
         </div>
       </div>
+
+      {/* IP Exclusion Filter */}
+      <Card className="mb-4">
+        <div className="flex flex-wrap items-center gap-6">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeMyIp}
+              onChange={(e) => { setExcludeMyIp(e.target.checked); setPage(1); }}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">
+              自分のIPを除外
+              {myIp && <code className="ml-1 text-xs text-gray-400">({myIp})</code>}
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeLan}
+              onChange={(e) => { setExcludeLan(e.target.checked); setPage(1); }}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span className="text-sm">LANアクセスを除外</span>
+          </label>
+        </div>
+      </Card>
 
       {/* Filter Bar */}
       <Card className="mb-6">

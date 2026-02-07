@@ -50,7 +50,7 @@ fn is_private_network(ip_str: &str) -> bool {
 }
 
 /// Extract client IP from headers or connection (same logic as proxy handler)
-fn extract_client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
+pub fn extract_client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
     if let Some(xff) = headers.get("x-forwarded-for") {
         if let Ok(s) = xff.to_str() {
             if let Some(ip) = s.split(',').next() {

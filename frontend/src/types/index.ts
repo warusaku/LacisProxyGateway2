@@ -222,6 +222,13 @@ export interface AccessLogSearchParams {
   path?: string;
   limit?: number;
   offset?: number;
+  exclude_ips?: string;
+  exclude_lan?: boolean;
+}
+
+export interface IpExclusionParams {
+  exclude_ips?: string;
+  exclude_lan?: boolean;
 }
 
 export interface SecurityEventSearchParams {

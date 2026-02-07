@@ -372,6 +372,19 @@ pub struct RouteStats {
 }
 
 // ============================================================================
+// IP Exclusion Filter
+// ============================================================================
+
+/// IP除外フィルタ用パラメータ
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct IpExclusionParams {
+    /// カンマ区切りの除外IPリスト (例: "1.2.3.4,5.6.7.8")
+    pub exclude_ips: Option<String>,
+    /// true の場合、プライベートネットワークIP (10.x, 172.16.x, 192.168.x, 127.x) を除外
+    pub exclude_lan: Option<bool>,
+}
+
+// ============================================================================
 // Access Log Search Models
 // ============================================================================
 
@@ -388,6 +401,10 @@ pub struct AccessLogSearchQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// カンマ区切りの除外IPリスト
+    pub exclude_ips: Option<String>,
+    /// true の場合、LAN IPを除外
+    pub exclude_lan: Option<bool>,
 }
 
 fn default_search_limit() -> i64 {

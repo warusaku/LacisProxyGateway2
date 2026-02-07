@@ -13,6 +13,42 @@ use crate::models::{
 
 use super::MongoDb;
 
+/// Build MongoDB filter conditions for IP exclusion
+fn build_ip_exclusion_conditions(exclude_ips: &Option<String>, exclude_lan: &Option<bool>) -> Vec<bson::Document> {
+    let mut conditions = Vec::new();
+
+    // 特定IPの除外 ($nin)
+    if let Some(ref ips) = exclude_ips {
+        let ip_list: Vec<&str> = ips.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if !ip_list.is_empty() {
+            let bson_list: Vec<bson::Bson> = ip_list.iter().map(|s| bson::Bson::String(s.to_string())).collect();
+            conditions.push(doc! { "ip": { "$nin": bson_list } });
+        }
+    }
+
+    // LANアクセス除外 ($not $regex)
+    if exclude_lan == &Some(true) {
+        conditions.push(doc! {
+            "ip": {
+                "$not": { "$regex": "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.|127\\.)" }
+            }
+        });
+    }
+
+    conditions
+}
+
+/// Merge IP exclusion conditions into an existing match document using $and
+fn apply_ip_exclusion(match_doc: &mut bson::Document, exclude_ips: &Option<String>, exclude_lan: &Option<bool>) {
+    let exclusion = build_ip_exclusion_conditions(exclude_ips, exclude_lan);
+    if !exclusion.is_empty() {
+        let original = std::mem::take(match_doc);
+        let mut all_conditions = vec![original];
+        all_conditions.extend(exclusion);
+        match_doc.insert("$and", all_conditions);
+    }
+}
+
 /// Extract integer count from BSON document (handles both Int32 and Int64)
 fn bson_to_u64(doc: &bson::Document, key: &str) -> u64 {
     match doc.get(key) {
@@ -43,8 +79,13 @@ impl MongoDb {
         &self,
         limit: i64,
         offset: i64,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
     ) -> Result<Vec<AccessLog>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
+
+        let mut filter = doc! {};
+        apply_ip_exclusion(&mut filter, exclude_ips, exclude_lan);
 
         let options = FindOptions::builder()
             .sort(doc! { "timestamp": -1 })
@@ -53,7 +94,7 @@ impl MongoDb {
             .build();
 
         let mut cursor = collection
-            .find(doc! {}, options)
+            .find(filter, options)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -136,7 +177,11 @@ impl MongoDb {
     }
 
     /// Get total request count for today
-    pub async fn get_today_request_count(&self) -> Result<u64, AppError> {
+    pub async fn get_today_request_count(
+        &self,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
+    ) -> Result<u64, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
         let today_start = Utc::now()
@@ -145,10 +190,13 @@ impl MongoDb {
             .unwrap()
             .and_utc();
 
+        let mut filter = doc! {
+            "timestamp": { "$gte": today_start.to_rfc3339() }
+        };
+        apply_ip_exclusion(&mut filter, exclude_ips, exclude_lan);
+
         let count = collection
-            .count_documents(doc! {
-                "timestamp": { "$gte": today_start.to_rfc3339() }
-            }, None)
+            .count_documents(filter, None)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -156,7 +204,11 @@ impl MongoDb {
     }
 
     /// Get request count by status code for today
-    pub async fn get_today_status_distribution(&self) -> Result<Vec<(i32, u64)>, AppError> {
+    pub async fn get_today_status_distribution(
+        &self,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
+    ) -> Result<Vec<(i32, u64)>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
         let today_start = Utc::now()
@@ -165,8 +217,11 @@ impl MongoDb {
             .unwrap()
             .and_utc();
 
+        let mut match_doc = doc! { "timestamp": { "$gte": today_start.to_rfc3339() } };
+        apply_ip_exclusion(&mut match_doc, exclude_ips, exclude_lan);
+
         let pipeline = vec![
-            doc! { "$match": { "timestamp": { "$gte": today_start.to_rfc3339() } } },
+            doc! { "$match": match_doc },
             doc! { "$group": { "_id": "$status", "count": { "$sum": 1 } } },
             doc! { "$sort": { "_id": 1 } },
         ];
@@ -448,20 +503,23 @@ impl MongoDb {
         &self,
         from: chrono::DateTime<Utc>,
         to: chrono::DateTime<Utc>,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
     ) -> Result<Vec<HourlyStat>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
         // Timestamp is stored as ISO 8601 string, so use string comparison
         // and $substrBytes to extract hour portion (first 13 chars = "2026-02-06T22")
+        let mut match_doc = doc! {
+            "timestamp": {
+                "$gte": from.to_rfc3339(),
+                "$lte": to.to_rfc3339(),
+            }
+        };
+        apply_ip_exclusion(&mut match_doc, exclude_ips, exclude_lan);
+
         let pipeline = vec![
-            doc! {
-                "$match": {
-                    "timestamp": {
-                        "$gte": from.to_rfc3339(),
-                        "$lte": to.to_rfc3339(),
-                    }
-                }
-            },
+            doc! { "$match": match_doc },
             doc! {
                 "$group": {
                     "_id": { "$substrBytes": ["$timestamp", 0, 13] },
@@ -512,18 +570,21 @@ impl MongoDb {
         from: chrono::DateTime<Utc>,
         to: chrono::DateTime<Utc>,
         limit: i64,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
     ) -> Result<Vec<TopEntry>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
+        let mut match_doc = doc! {
+            "timestamp": {
+                "$gte": from.to_rfc3339(),
+                "$lte": to.to_rfc3339(),
+            }
+        };
+        apply_ip_exclusion(&mut match_doc, exclude_ips, exclude_lan);
+
         let pipeline = vec![
-            doc! {
-                "$match": {
-                    "timestamp": {
-                        "$gte": from.to_rfc3339(),
-                        "$lte": to.to_rfc3339(),
-                    }
-                }
-            },
+            doc! { "$match": match_doc },
             doc! {
                 "$group": {
                     "_id": "$ip",
@@ -569,18 +630,21 @@ impl MongoDb {
         from: chrono::DateTime<Utc>,
         to: chrono::DateTime<Utc>,
         limit: i64,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
     ) -> Result<Vec<TopEntry>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
+        let mut match_doc = doc! {
+            "timestamp": {
+                "$gte": from.to_rfc3339(),
+                "$lte": to.to_rfc3339(),
+            }
+        };
+        apply_ip_exclusion(&mut match_doc, exclude_ips, exclude_lan);
+
         let pipeline = vec![
-            doc! {
-                "$match": {
-                    "timestamp": {
-                        "$gte": from.to_rfc3339(),
-                        "$lte": to.to_rfc3339(),
-                    }
-                }
-            },
+            doc! { "$match": match_doc },
             doc! {
                 "$group": {
                     "_id": "$path",
@@ -625,19 +689,22 @@ impl MongoDb {
         &self,
         from: chrono::DateTime<Utc>,
         to: chrono::DateTime<Utc>,
+        exclude_ips: &Option<String>,
+        exclude_lan: &Option<bool>,
     ) -> Result<Vec<ErrorSummary>, AppError> {
         let collection = self.db.collection::<bson::Document>("access_logs");
 
-        let pipeline = vec![
-            doc! {
-                "$match": {
-                    "timestamp": {
-                        "$gte": from.to_rfc3339(),
-                        "$lte": to.to_rfc3339(),
-                    },
-                    "status": { "$gte": 400 }
-                }
+        let mut match_doc = doc! {
+            "timestamp": {
+                "$gte": from.to_rfc3339(),
+                "$lte": to.to_rfc3339(),
             },
+            "status": { "$gte": 400 }
+        };
+        apply_ip_exclusion(&mut match_doc, exclude_ips, exclude_lan);
+
+        let pipeline = vec![
+            doc! { "$match": match_doc },
             doc! {
                 "$group": {
                     "_id": {
@@ -750,6 +817,9 @@ impl MongoDb {
                 filter.insert("path", doc! { "$regex": path.as_str() });
             }
         }
+
+        // IP exclusion filter
+        apply_ip_exclusion(&mut filter, &query.exclude_ips, &query.exclude_lan);
 
         filter
     }
