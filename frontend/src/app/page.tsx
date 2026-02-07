@@ -120,39 +120,20 @@ export default function Dashboard() {
       key: 'timestamp',
       header: 'Time',
       render: (log: AccessLog) => (
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-400 whitespace-nowrap">
           {new Date(log.timestamp).toLocaleTimeString()}
         </span>
       ),
     },
     {
-      key: 'method',
-      header: 'Method',
+      key: 'request',
+      header: 'Request',
       render: (log: AccessLog) => (
-        <span className="font-mono text-sm">{log.method}</span>
-      ),
-    },
-    {
-      key: 'path',
-      header: 'Path',
-      render: (log: AccessLog) => (
-        <code className="text-sm truncate max-w-xs block">{log.path}</code>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (log: AccessLog) => (
-        <span className={`font-mono ${getStatusColor(log.status)}`}>
-          {log.status}
-        </span>
-      ),
-    },
-    {
-      key: 'response_time_ms',
-      header: 'Time',
-      render: (log: AccessLog) => (
-        <span className="text-sm text-gray-400">{log.response_time_ms}ms</span>
+        <div className="flex items-center gap-2">
+          <span className={`font-mono text-xs ${getStatusColor(log.status)}`}>{log.status}</span>
+          <span className="font-mono text-xs text-gray-400">{log.method}</span>
+          <code className="text-sm truncate max-w-[200px] block">{log.path}</code>
+        </div>
       ),
     },
     {
