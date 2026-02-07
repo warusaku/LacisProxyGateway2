@@ -598,6 +598,8 @@ impl MongoDb {
                     "country_code": { "$max": "$country_code" },
                     "country": { "$max": "$country" },
                     "city": { "$max": "$city" },
+                    "latitude": { "$max": "$latitude" },
+                    "longitude": { "$max": "$longitude" },
                 }
             },
             doc! { "$sort": { "count": -1 } },
@@ -621,6 +623,8 @@ impl MongoDb {
             let country_code = doc.get_str("country_code").ok().map(|s| s.to_string());
             let country = doc.get_str("country").ok().map(|s| s.to_string());
             let city = doc.get_str("city").ok().map(|s| s.to_string());
+            let latitude = doc.get_f64("latitude").ok();
+            let longitude = doc.get_f64("longitude").ok();
             entries.push(TopEntry {
                 key,
                 count,
@@ -628,6 +632,8 @@ impl MongoDb {
                 country_code,
                 country,
                 city,
+                latitude,
+                longitude,
             });
         }
 
@@ -691,6 +697,8 @@ impl MongoDb {
                 country_code: None,
                 country: None,
                 city: None,
+                latitude: None,
+                longitude: None,
             });
         }
 

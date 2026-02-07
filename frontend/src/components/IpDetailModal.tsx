@@ -114,6 +114,24 @@ export function IpDetailModal({ entry, onClose }: IpDetailModalProps) {
             </div>
           </div>
 
+          {/* Location Map */}
+          {entry.latitude != null && entry.longitude != null && (
+            <div className="pt-3 border-t border-border">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                Location Map
+              </h3>
+              <iframe
+                title="IP Location Map"
+                width="100%"
+                height="200"
+                style={{ border: 0, borderRadius: '8px' }}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                src={`https://maps.google.com/maps?q=${entry.latitude},${entry.longitude}&z=10&output=embed`}
+              />
+            </div>
+          )}
+
           {/* Recent Access Logs */}
           <div className="pt-3 border-t border-border">
             <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">

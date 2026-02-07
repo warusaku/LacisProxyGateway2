@@ -203,6 +203,8 @@ export interface TopEntry {
   country_code?: string;
   country?: string;
   city?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ErrorSummary {
