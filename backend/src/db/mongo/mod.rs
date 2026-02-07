@@ -1,6 +1,7 @@
 //! MongoDB database module
 
 mod access_log;
+mod ip_history;
 mod security_events;
 
 use mongodb::{Client, Database};

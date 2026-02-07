@@ -17,7 +17,10 @@ use crate::proxy::ProxyState;
 
 use super::security::PaginationQuery;
 
-/// GET /api/my-ip - Get the client's IP address and server's global IP (from DDNS last_ip)
+/// GET /api/my-ip - Get the client's IP address, server's global IP, and IP history
+///
+/// Returns current IPs and ALL historical IPs (for exclusion filters).
+/// Also records the client IP and server IP into ip_history collection.
 pub async fn get_my_ip(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -39,7 +42,32 @@ pub async fn get_my_ip(
                 .and_then(|c| c.last_ip)
         });
 
-    Json(serde_json::json!({ "ip": ip, "server_ip": server_ip }))
+    // IP履歴に記録（期間追跡のため: first_seen/last_seen を upsert）
+    let _ = state.app_state.mongo.upsert_ip_history(&ip, "admin").await;
+    if let Some(ref sip) = server_ip {
+        let _ = state.app_state.mongo.upsert_ip_history(sip, "server").await;
+    }
+
+    // 全履歴IPを取得（IP変更後も旧IPでフィルタ可能にする）
+    let server_ip_history = state
+        .app_state
+        .mongo
+        .get_ip_history("server")
+        .await
+        .unwrap_or_default();
+    let admin_ip_history = state
+        .app_state
+        .mongo
+        .get_ip_history("admin")
+        .await
+        .unwrap_or_default();
+
+    Json(serde_json::json!({
+        "ip": ip,
+        "server_ip": server_ip,
+        "server_ip_history": server_ip_history,
+        "admin_ip_history": admin_ip_history,
+    }))
 }
 
 /// Dashboard stats query with IP exclusion parameters

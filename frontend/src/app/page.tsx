@@ -28,6 +28,9 @@ export default function Dashboard() {
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
   const [serverIp, setServerIp] = useState<string>('');
+  const [serverIpHistory, setServerIpHistory] = useState<string[]>([]);
+  const [adminIpHistory, setAdminIpHistory] = useState<string[]>([]);
+  const [ipReady, setIpReady] = useState(false);
   const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
@@ -47,12 +50,17 @@ export default function Dashboard() {
     return false;
   });
 
-  // 自分のIP + サーバーのグローバルIPを取得（DDNSから動的取得）
+  // 自分のIP + サーバーのグローバルIP + 全履歴IPを取得
   useEffect(() => {
     dashboardApi.getMyIp().then(r => {
       setMyIp(r.ip);
       if (r.server_ip) setServerIp(r.server_ip);
-    }).catch(() => {});
+      setServerIpHistory(r.server_ip_history || []);
+      setAdminIpHistory(r.admin_ip_history || []);
+      setIpReady(true);
+    }).catch(() => {
+      setIpReady(true); // エラーでもロード続行
+    });
   }, []);
 
   // localStorage 永続化
@@ -66,24 +74,30 @@ export default function Dashboard() {
     localStorage.setItem('lpg_exclude_lan', String(excludeLan));
   }, [excludeLan]);
 
-  // 除外パラメータ構築ヘルパー（複数IPをカンマ区切り）
+  // 除外パラメータ構築ヘルパー（全履歴IPをカンマ区切りで送信）
   const buildExclusionParams = (): IpExclusionParams => {
     const params: IpExclusionParams = {};
-    const ips: string[] = [];
-    if (excludeMyIp && myIp) ips.push(myIp);
-    if (excludeServerIp && serverIp && !ips.includes(serverIp)) ips.push(serverIp);
-    if (ips.length > 0) params.exclude_ips = ips.join(',');
+    const ipSet = new Set<string>();
+    if (excludeMyIp) {
+      adminIpHistory.forEach(ip => ipSet.add(ip));
+      if (myIp) ipSet.add(myIp);
+    }
+    if (excludeServerIp) {
+      serverIpHistory.forEach(ip => ipSet.add(ip));
+      if (serverIp) ipSet.add(serverIp);
+    }
+    if (ipSet.size > 0) params.exclude_ips = Array.from(ipSet).join(',');
     if (excludeLan) params.exclude_lan = true;
     return params;
   };
 
   useEffect(() => {
+    if (!ipReady) return; // IP取得完了まで待つ（race condition防止）
     loadDashboard();
-    // Auto-refresh every 30 seconds
     const interval = setInterval(loadDashboard, 30000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [excludeMyIp, excludeServerIp, excludeLan, myIp, serverIp]);
+  }, [ipReady, excludeMyIp, excludeServerIp, excludeLan, serverIpHistory, adminIpHistory]);
 
   const loadDashboard = async () => {
     try {

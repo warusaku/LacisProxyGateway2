@@ -46,6 +46,9 @@ export default function LogsPage() {
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
   const [serverIp, setServerIp] = useState<string>('');
+  const [serverIpHistory, setServerIpHistory] = useState<string[]>([]);
+  const [adminIpHistory, setAdminIpHistory] = useState<string[]>([]);
+  const [ipReady, setIpReady] = useState(false);
   const [excludeMyIp, setExcludeMyIp] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('lpg_exclude_my_ip') !== 'false'; // デフォルトON
@@ -65,12 +68,17 @@ export default function LogsPage() {
     return false;
   });
 
-  // 自分のIP + サーバーのグローバルIPを取得（DDNSから動的取得）
+  // 自分のIP + サーバーのグローバルIP + 全履歴IPを取得
   useEffect(() => {
     dashboardApi.getMyIp().then(r => {
       setMyIp(r.ip);
       if (r.server_ip) setServerIp(r.server_ip);
-    }).catch(() => {});
+      setServerIpHistory(r.server_ip_history || []);
+      setAdminIpHistory(r.admin_ip_history || []);
+      setIpReady(true);
+    }).catch(() => {
+      setIpReady(true); // エラーでもロード続行
+    });
   }, []);
 
   // localStorage 永続化
@@ -84,16 +92,22 @@ export default function LogsPage() {
     localStorage.setItem('lpg_exclude_lan', String(excludeLan));
   }, [excludeLan]);
 
-  // 除外パラメータ構築ヘルパー（複数IPをカンマ区切り）
+  // 除外パラメータ構築ヘルパー（全履歴IPをカンマ区切りで送信）
   const buildExclusionParams = useCallback((): IpExclusionParams => {
     const params: IpExclusionParams = {};
-    const ips: string[] = [];
-    if (excludeMyIp && myIp) ips.push(myIp);
-    if (excludeServerIp && serverIp && !ips.includes(serverIp)) ips.push(serverIp);
-    if (ips.length > 0) params.exclude_ips = ips.join(',');
+    const ipSet = new Set<string>();
+    if (excludeMyIp) {
+      adminIpHistory.forEach(ip => ipSet.add(ip));
+      if (myIp) ipSet.add(myIp);
+    }
+    if (excludeServerIp) {
+      serverIpHistory.forEach(ip => ipSet.add(ip));
+      if (serverIp) ipSet.add(serverIp);
+    }
+    if (ipSet.size > 0) params.exclude_ips = Array.from(ipSet).join(',');
     if (excludeLan) params.exclude_lan = true;
     return params;
-  }, [excludeMyIp, excludeServerIp, excludeLan, myIp, serverIp]);
+  }, [excludeMyIp, excludeServerIp, excludeLan, myIp, serverIp, serverIpHistory, adminIpHistory]);
 
   // Filter state
   const [fromDate, setFromDate] = useState('');
@@ -150,8 +164,9 @@ export default function LogsPage() {
   }, [fromDate, toDate, buildExclusionParams]);
 
   useEffect(() => {
+    if (!ipReady) return; // IP取得完了まで待つ（race condition防止）
     loadLogs();
-  }, [loadLogs]);
+  }, [ipReady, loadLogs]);
 
   useEffect(() => {
     if (activeTab === 'errors') {
