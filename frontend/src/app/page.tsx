@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
+import { LogDetailModal } from '@/components/LogDetailModal';
 import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
 import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution } from '@/types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { getStatusColor } from '@/lib/format';
 import { countryCodeToFlag } from '@/lib/geo';
 
 export default function Dashboard() {
@@ -20,6 +22,7 @@ export default function Dashboard() {
   const [statusDist, setStatusDist] = useState<StatusDistribution[]>([]);
   const [topIps, setTopIps] = useState<TopEntry[]>([]);
   const [topPaths, setTopPaths] = useState<TopEntry[]>([]);
+  const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,13 +76,6 @@ export default function Dashboard() {
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
-  };
-
-  const getStatusColor = (status: number) => {
-    if (status >= 200 && status < 300) return 'text-green-400';
-    if (status >= 300 && status < 400) return 'text-blue-400';
-    if (status >= 400 && status < 500) return 'text-yellow-400';
-    return 'text-red-400';
   };
 
   const healthColumns = [
@@ -599,10 +595,13 @@ export default function Dashboard() {
               data={logs}
               keyExtractor={(log) => `${log.timestamp}-${log.ip}-${log.path}`}
               emptyMessage="No recent requests"
+              onRowClick={(log) => setSelectedLog(log)}
             />
           </div>
         </Card>
       </div>
+
+      <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
     </div>
   );
 }

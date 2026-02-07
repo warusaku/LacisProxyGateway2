@@ -9,6 +9,7 @@ import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { routesApi, ddnsApi, type RouteDetailedStatus } from '@/lib/api';
+import { getStatusColor } from '@/lib/format';
 import type { ProxyRoute, CreateRouteRequest, DdnsConfig, AccessLog } from '@/types';
 
 type ViewMode = 'list' | 'status';
@@ -232,13 +233,6 @@ export default function RoutesPage() {
       ),
     },
   ];
-
-  const getStatusColor = (status: number) => {
-    if (status >= 200 && status < 300) return 'text-green-400';
-    if (status >= 300 && status < 400) return 'text-blue-400';
-    if (status >= 400 && status < 500) return 'text-yellow-400';
-    return 'text-red-400';
-  };
 
   const logColumns = [
     {

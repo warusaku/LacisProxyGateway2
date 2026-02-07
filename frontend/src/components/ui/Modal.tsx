@@ -7,9 +7,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  className?: string;
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, className }: ModalProps) {
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -42,7 +43,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       />
 
       {/* Modal content */}
-      <div className="relative z-10 w-full max-w-lg mx-4 bg-card border border-border rounded-lg shadow-xl">
+      <div className={`relative z-10 w-full ${className ?? 'max-w-lg'} mx-4 bg-card border border-border rounded-lg shadow-xl`}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-semibold">{title}</h2>
