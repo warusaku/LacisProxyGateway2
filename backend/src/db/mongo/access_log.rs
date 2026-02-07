@@ -593,7 +593,11 @@ impl MongoDb {
                         "$sum": {
                             "$cond": [{ "$gte": ["$status", 400] }, 1, 0]
                         }
-                    }
+                    },
+                    // GeoIPデータ: 同一IPは同一locationなので$maxで非nullを取得
+                    "country_code": { "$max": "$country_code" },
+                    "country": { "$max": "$country" },
+                    "city": { "$max": "$city" },
                 }
             },
             doc! { "$sort": { "count": -1 } },
@@ -614,10 +618,16 @@ impl MongoDb {
             let key = doc.get_str("_id").unwrap_or("").to_string();
             let count = bson_to_u64(&doc, "count");
             let error_count = bson_to_u64(&doc, "error_count");
+            let country_code = doc.get_str("country_code").ok().map(|s| s.to_string());
+            let country = doc.get_str("country").ok().map(|s| s.to_string());
+            let city = doc.get_str("city").ok().map(|s| s.to_string());
             entries.push(TopEntry {
                 key,
                 count,
                 error_count,
+                country_code,
+                country,
+                city,
             });
         }
 
@@ -678,6 +688,9 @@ impl MongoDb {
                 key,
                 count,
                 error_count,
+                country_code: None,
+                country: None,
+                city: None,
             });
         }
 

@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
 import { LogDetailModal } from '@/components/LogDetailModal';
+import { IpDetailModal } from '@/components/IpDetailModal';
 import { dashboardApi, omadaApi, type NetworkStatus, type SslStatus, type ServerHealth } from '@/lib/api';
 import type { DashboardStats, RouteHealth, AccessLog, HourlyStat, TopEntry, StatusDistribution, IpExclusionParams } from '@/types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [topIps, setTopIps] = useState<TopEntry[]>([]);
   const [topPaths, setTopPaths] = useState<TopEntry[]>([]);
   const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
+  const [selectedIp, setSelectedIp] = useState<TopEntry | null>(null);
   const [loading, setLoading] = useState(true);
 
   // IP exclusion filter state
@@ -649,10 +651,19 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2">
             {topIps.length > 0 ? topIps.map((entry, i) => (
-              <div key={entry.key} className="flex items-center justify-between text-sm py-1 border-b border-gray-800 last:border-0">
+              <div
+                key={entry.key}
+                className="flex items-center justify-between text-sm py-1 border-b border-gray-800 last:border-0 cursor-pointer hover:bg-gray-800/50 rounded px-1 -mx-1 transition-colors"
+                onClick={() => setSelectedIp(entry)}
+              >
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500 w-6 text-right">{i + 1}.</span>
                   <code className="text-blue-400">{entry.key}</code>
+                  {entry.country_code && (
+                    <span className="text-xs text-gray-400">
+                      {countryCodeToFlag(entry.country_code)} {entry.city || entry.country || entry.country_code}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-4">
                   <span>{entry.count.toLocaleString()} req</span>
@@ -726,6 +737,7 @@ export default function Dashboard() {
       </div>
 
       <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
+      <IpDetailModal entry={selectedIp} onClose={() => setSelectedIp(null)} />
     </div>
   );
 }

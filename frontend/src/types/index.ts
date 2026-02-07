@@ -199,6 +199,10 @@ export interface TopEntry {
   key: string;
   count: number;
   error_count: number;
+  // GeoIP fields (populated for IP-based entries)
+  country_code?: string;
+  country?: string;
+  city?: string;
 }
 
 export interface ErrorSummary {

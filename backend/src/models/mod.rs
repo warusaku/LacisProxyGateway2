@@ -430,6 +430,13 @@ pub struct TopEntry {
     pub key: String,
     pub count: u64,
     pub error_count: u64,
+    // GeoIP fields (populated for IP-based entries)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
