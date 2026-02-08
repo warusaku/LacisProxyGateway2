@@ -849,4 +849,154 @@ impl OmadaClient {
     pub fn http_client(&self) -> &Client {
         &self.http_client
     }
+
+    // ========================================================================
+    // WireGuard Peer CRUD (Omada OpenAPI)
+    // ========================================================================
+
+    /// Create a WireGuard peer via Omada OpenAPI
+    pub async fn create_wireguard_peer(
+        &self,
+        site_id: &str,
+        req: &CreateWgPeerRequest,
+    ) -> Result<serde_json::Value, String> {
+        let token = self.ensure_token().await?;
+        let config = self.config.read().await;
+        let cfg = config.as_ref().ok_or("Omada not configured")?;
+
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{}/vpn/wireguard-peers",
+            cfg.base_url, cfg.omadac_id, site_id
+        );
+
+        let body = serde_json::to_value(req).map_err(|e| format!("Serialize: {}", e))?;
+
+        let resp = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("AccessToken={}", token))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Create WG peer request failed: {}", e))?;
+
+        let result: OmadaResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Create WG peer parse failed: {}", e))?;
+
+        if result.error_code != 0 {
+            return Err(format!("Create WG peer error: {:?}", result.msg));
+        }
+
+        Ok(result.result.unwrap_or(serde_json::json!({})))
+    }
+
+    /// Update a WireGuard peer via Omada OpenAPI
+    pub async fn update_wireguard_peer(
+        &self,
+        site_id: &str,
+        peer_id: &str,
+        req: &UpdateWgPeerRequest,
+    ) -> Result<(), String> {
+        let token = self.ensure_token().await?;
+        let config = self.config.read().await;
+        let cfg = config.as_ref().ok_or("Omada not configured")?;
+
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{}/vpn/wireguard-peers/{}",
+            cfg.base_url, cfg.omadac_id, site_id, peer_id
+        );
+
+        let body = serde_json::to_value(req).map_err(|e| format!("Serialize: {}", e))?;
+
+        let resp = self
+            .http_client
+            .put(&url)
+            .header("Authorization", format!("AccessToken={}", token))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Update WG peer request failed: {}", e))?;
+
+        let result: OmadaResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Update WG peer parse failed: {}", e))?;
+
+        if result.error_code != 0 {
+            return Err(format!("Update WG peer error: {:?}", result.msg));
+        }
+
+        Ok(())
+    }
+
+    /// Delete a WireGuard peer via Omada OpenAPI
+    pub async fn delete_wireguard_peer(
+        &self,
+        site_id: &str,
+        peer_id: &str,
+    ) -> Result<(), String> {
+        let token = self.ensure_token().await?;
+        let config = self.config.read().await;
+        let cfg = config.as_ref().ok_or("Omada not configured")?;
+
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{}/vpn/wireguard-peers/{}",
+            cfg.base_url, cfg.omadac_id, site_id, peer_id
+        );
+
+        let resp = self
+            .http_client
+            .delete(&url)
+            .header("Authorization", format!("AccessToken={}", token))
+            .send()
+            .await
+            .map_err(|e| format!("Delete WG peer request failed: {}", e))?;
+
+        let result: OmadaResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Delete WG peer parse failed: {}", e))?;
+
+        if result.error_code != 0 {
+            return Err(format!("Delete WG peer error: {:?}", result.msg));
+        }
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// WireGuard Peer CRUD request types
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateWgPeerRequest {
+    pub name: String,
+    #[serde(rename = "interfaceId")]
+    pub interface_id: String,
+    #[serde(rename = "publicKey")]
+    pub public_key: String,
+    #[serde(rename = "allowAddress")]
+    pub allow_address: Vec<String>,
+    #[serde(rename = "keepAlive")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateWgPeerRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "allowAddress")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_address: Option<Vec<String>>,
+    #[serde(rename = "keepAlive")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }

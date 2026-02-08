@@ -165,6 +165,62 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Omada: Legacy compatibility
         .route("/api/omada/status", get(handlers::get_network_status))
         .route("/api/omada/test", post(handlers::test_connection))
+        // OpenWrt: Router management
+        .route("/api/openwrt/routers", post(handlers::openwrt::register_router))
+        .route("/api/openwrt/routers", get(handlers::openwrt::list_routers))
+        .route(
+            "/api/openwrt/routers/test",
+            post(handlers::openwrt::test_router_connection),
+        )
+        .route(
+            "/api/openwrt/routers/:id",
+            get(handlers::openwrt::get_router),
+        )
+        .route(
+            "/api/openwrt/routers/:id",
+            delete(handlers::openwrt::delete_router),
+        )
+        .route(
+            "/api/openwrt/routers/:id/poll",
+            post(handlers::openwrt::poll_router),
+        )
+        .route("/api/openwrt/clients", get(handlers::openwrt::get_openwrt_clients))
+        .route("/api/openwrt/summary", get(handlers::openwrt::get_openwrt_summary))
+        // WireGuard: Key gen, peer CRUD, config
+        .route("/api/wireguard/keypair", post(handlers::wireguard::generate_keypair))
+        .route("/api/wireguard/peers", post(handlers::wireguard::create_peer))
+        .route("/api/wireguard/peers", get(handlers::wireguard::get_peers))
+        .route(
+            "/api/wireguard/peers/:id",
+            put(handlers::wireguard::update_peer),
+        )
+        .route(
+            "/api/wireguard/peers/:id",
+            delete(handlers::wireguard::delete_peer),
+        )
+        .route("/api/wireguard/config", post(handlers::wireguard::generate_config))
+        .route("/api/wireguard/interfaces", get(handlers::wireguard::get_interfaces))
+        // External: Device management
+        .route("/api/external/devices", post(handlers::external::register_device))
+        .route("/api/external/devices", get(handlers::external::list_devices))
+        .route(
+            "/api/external/devices/test",
+            post(handlers::external::test_device_connection),
+        )
+        .route(
+            "/api/external/devices/:id",
+            get(handlers::external::get_device),
+        )
+        .route(
+            "/api/external/devices/:id",
+            delete(handlers::external::delete_device),
+        )
+        .route(
+            "/api/external/devices/:id/poll",
+            post(handlers::external::poll_device),
+        )
+        .route("/api/external/clients", get(handlers::external::get_external_clients))
+        .route("/api/external/summary", get(handlers::external::get_external_summary))
         // Nginx management
         .route("/api/nginx/status", get(handlers::get_nginx_status))
         .route("/api/nginx/config", get(handlers::get_nginx_config))

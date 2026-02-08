@@ -276,6 +276,169 @@ export interface LacisOathConfig {
 }
 
 // ============================================================================
+// OpenWrt
+// ============================================================================
+
+export interface OpenWrtRouterDoc {
+  router_id: string;
+  display_name: string;
+  mac: string;
+  ip: string;
+  port: number;
+  username: string;
+  password: string;
+  firmware: string;
+  status: string;
+  wan_ip?: string;
+  lan_ip?: string;
+  ssid_24g?: string;
+  ssid_5g?: string;
+  uptime_seconds?: number;
+  client_count: number;
+  firmware_version?: string;
+  last_error?: string;
+  omada_controller_id?: string;
+  omada_site_id?: string;
+  lacis_id?: string;
+  product_type: string;
+  network_device_type: string;
+  last_polled_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenWrtClientDoc {
+  mac: string;
+  router_id: string;
+  ip: string;
+  hostname?: string;
+  lacis_id?: string;
+  active: boolean;
+  last_seen_at: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenWrtSummary {
+  total_routers: number;
+  online_routers: number;
+  total_clients: number;
+  active_clients: number;
+}
+
+// ============================================================================
+// External Devices
+// ============================================================================
+
+export interface ExternalDeviceDoc {
+  device_id: string;
+  display_name: string;
+  mac: string;
+  ip: string;
+  protocol: string;
+  username?: string;
+  password?: string;
+  status: string;
+  device_model?: string;
+  client_count: number;
+  last_error?: string;
+  omada_controller_id?: string;
+  omada_site_id?: string;
+  lacis_id?: string;
+  product_type: string;
+  network_device_type: string;
+  last_polled_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExternalClientDoc {
+  mac: string;
+  device_id: string;
+  ip?: string;
+  hostname?: string;
+  lacis_id?: string;
+  active: boolean;
+  last_seen_at: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExternalSummary {
+  total_devices: number;
+  online_devices: number;
+  total_clients: number;
+  active_clients: number;
+}
+
+// ============================================================================
+// Omada (multi-controller types used by WireGuard page)
+// ============================================================================
+
+export interface OmadaSiteMapping {
+  site_id: string;
+  name: string;
+  region?: string;
+  fid?: string;
+  tid?: string;
+  fid_display_name?: string;
+}
+
+export interface OmadaControllerDoc {
+  controller_id: string;
+  display_name: string;
+  base_url: string;
+  client_id: string;
+  client_secret: string;
+  omadac_id: string;
+  controller_ver: string;
+  api_ver: string;
+  status: string;
+  last_error?: string;
+  sites: OmadaSiteMapping[];
+  last_synced_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OmadaWgPeerDoc {
+  peer_id: string;
+  controller_id: string;
+  site_id: string;
+  name: string;
+  status: boolean;
+  interface_id: string;
+  interface_name: string;
+  public_key: string;
+  allow_address: string[];
+  keep_alive: number;
+  comment?: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// WireGuard
+// ============================================================================
+
+export interface WgKeyPair {
+  private_key: string;
+  public_key: string;
+}
+
+export interface WgInterface {
+  interface_id: string;
+  interface_name: string;
+  controller_id: string;
+  site_id: string;
+  peer_count: number;
+  active_peers: number;
+}
+
+// ============================================================================
 // API Response
 // ============================================================================
 

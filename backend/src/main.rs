@@ -8,13 +8,16 @@ mod config;
 mod db;
 mod ddns;
 mod error;
+mod external;
 mod geoip;
 mod health;
 mod models;
 mod notify;
 mod omada;
+mod openwrt;
 mod proxy;
 mod restart;
+mod wireguard;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,9 +28,11 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
+use crate::external::{ExternalDeviceManager, ExternalSyncer};
 use crate::health::HealthChecker;
 use crate::notify::DiscordNotifier;
 use crate::omada::{OmadaManager, OmadaSyncer};
+use crate::openwrt::{OpenWrtManager, OpenWrtSyncer};
 use crate::proxy::ProxyState;
 use crate::restart::RestartScheduler;
 
@@ -71,13 +76,29 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("OmadaManager load failed (non-fatal): {}", e),
     }
 
-    // Initialize proxy state (includes DdnsUpdater, optional GeoIP, auth config, OmadaManager)
+    // Initialize OpenWrtManager (multi-router SSH management)
+    let openwrt_manager = Arc::new(OpenWrtManager::new(app_state.mongo.clone()));
+    match openwrt_manager.load_all().await {
+        Ok(count) => tracing::info!("OpenWrtManager loaded {} routers", count),
+        Err(e) => tracing::warn!("OpenWrtManager load failed (non-fatal): {}", e),
+    }
+
+    // Initialize ExternalDeviceManager (Mercury AC, Generic)
+    let external_manager = Arc::new(ExternalDeviceManager::new(app_state.mongo.clone()));
+    match external_manager.load_all().await {
+        Ok(count) => tracing::info!("ExternalManager loaded {} devices", count),
+        Err(e) => tracing::warn!("ExternalManager load failed (non-fatal): {}", e),
+    }
+
+    // Initialize proxy state (includes DdnsUpdater, optional GeoIP, auth config, managers)
     let proxy_state = ProxyState::new(
         app_state.clone(),
         notifier.clone(),
         config.server.geoip_db_path.as_deref(),
         config.auth,
         omada_manager.clone(),
+        openwrt_manager.clone(),
+        external_manager.clone(),
     )
     .await?;
     let route_count = proxy_state.router.read().await.len();
@@ -92,6 +113,8 @@ async fn main() -> anyhow::Result<()> {
         notifier.clone(),
         proxy_state.ddns_updater.clone(),
         omada_manager,
+        openwrt_manager,
+        external_manager,
     );
 
     // Build application router
@@ -123,12 +146,14 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Start background tasks (DDNS updater, health checker, restart scheduler, Omada syncer)
+/// Start background tasks (DDNS updater, health checker, restart scheduler, syncers)
 fn start_background_tasks(
     app_state: AppState,
     notifier: Arc<DiscordNotifier>,
     ddns_updater: Arc<DdnsUpdater>,
     omada_manager: Arc<OmadaManager>,
+    openwrt_manager: Arc<OpenWrtManager>,
+    external_manager: Arc<ExternalDeviceManager>,
 ) {
     // DDNS updater (use shared instance)
     tokio::spawn(async move {
@@ -154,6 +179,24 @@ fn start_background_tasks(
     ));
     tokio::spawn(async move {
         omada_syncer.start().await;
+    });
+
+    // OpenWrt syncer (30s interval, all routers)
+    let openwrt_syncer = Arc::new(OpenWrtSyncer::new(
+        openwrt_manager,
+        app_state.mongo.clone(),
+    ));
+    tokio::spawn(async move {
+        openwrt_syncer.start().await;
+    });
+
+    // External device syncer (60s interval, Mercury AC etc.)
+    let external_syncer = Arc::new(ExternalSyncer::new(
+        external_manager,
+        app_state.mongo.clone(),
+    ));
+    tokio::spawn(async move {
+        external_syncer.start().await;
     });
 
     tracing::info!("Background tasks started");

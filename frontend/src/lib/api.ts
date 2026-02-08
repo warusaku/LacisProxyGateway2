@@ -640,6 +640,203 @@ export const omadaApi = {
 };
 
 // ============================================================================
+// OpenWrt API
+// ============================================================================
+
+export const openwrtApi = {
+  listRouters: () =>
+    request<{ ok: boolean; routers: import('@/types').OpenWrtRouterDoc[]; total: number; error?: string }>('/openwrt/routers'),
+
+  getRouter: (id: string) =>
+    request<{ ok: boolean; router?: import('@/types').OpenWrtRouterDoc; error?: string }>(`/openwrt/routers/${id}`),
+
+  registerRouter: (data: {
+    display_name: string;
+    mac: string;
+    ip: string;
+    port?: number;
+    username: string;
+    password: string;
+    firmware: string;
+  }) =>
+    request<{ ok: boolean; router?: import('@/types').OpenWrtRouterDoc; error?: string }>('/openwrt/routers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteRouter: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/openwrt/routers/${id}`, {
+      method: 'DELETE',
+    }),
+
+  testConnection: (data: {
+    ip: string;
+    port?: number;
+    username: string;
+    password: string;
+    firmware: string;
+  }) =>
+    request<{ success: boolean; status?: unknown; error?: string }>('/openwrt/routers/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  pollRouter: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/openwrt/routers/${id}/poll`, {
+      method: 'POST',
+    }),
+
+  getClients: (routerId?: string) => {
+    const query = new URLSearchParams();
+    if (routerId) query.set('router_id', routerId);
+    const qs = query.toString();
+    return request<{ ok: boolean; clients: import('@/types').OpenWrtClientDoc[]; total: number; error?: string }>(
+      `/openwrt/clients${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getSummary: () =>
+    request<{ ok: boolean; summary: import('@/types').OpenWrtSummary; error?: string }>('/openwrt/summary'),
+};
+
+// ============================================================================
+// WireGuard API
+// ============================================================================
+
+export const wireguardApi = {
+  generateKeypair: () =>
+    request<{ ok: boolean; private_key: string; public_key: string }>('/wireguard/keypair', {
+      method: 'POST',
+    }),
+
+  createPeer: (data: {
+    controller_id: string;
+    site_id: string;
+    name: string;
+    interface_id: string;
+    public_key: string;
+    allow_address: string[];
+    keep_alive?: number;
+    comment?: string;
+  }) =>
+    request<{ ok: boolean; peer?: unknown; error?: string }>('/wireguard/peers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getPeers: (controllerId?: string, siteId?: string) => {
+    const query = new URLSearchParams();
+    if (controllerId) query.set('controller_id', controllerId);
+    if (siteId) query.set('site_id', siteId);
+    const qs = query.toString();
+    return request<{ ok: boolean; peers: OmadaWgPeerDoc[]; total: number; error?: string }>(
+      `/wireguard/peers${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  updatePeer: (peerId: string, data: {
+    controller_id: string;
+    site_id: string;
+    name?: string;
+    allow_address?: string[];
+    keep_alive?: number;
+    comment?: string;
+  }) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/wireguard/peers/${peerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deletePeer: (peerId: string, controllerId: string, siteId: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(
+      `/wireguard/peers/${peerId}?controller_id=${controllerId}&site_id=${siteId}`,
+      { method: 'DELETE' }
+    ),
+
+  generateConfig: (params: {
+    private_key: string;
+    address: string;
+    dns: string;
+    server_public_key: string;
+    endpoint: string;
+    allowed_ips: string;
+    persistent_keepalive?: number;
+  }) =>
+    request<{ ok: boolean; config: string }>('/wireguard/config', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  getInterfaces: (controllerId?: string, siteId?: string) => {
+    const query = new URLSearchParams();
+    if (controllerId) query.set('controller_id', controllerId);
+    if (siteId) query.set('site_id', siteId);
+    const qs = query.toString();
+    return request<{ ok: boolean; interfaces: import('@/types').WgInterface[]; total: number; error?: string }>(
+      `/wireguard/interfaces${qs ? `?${qs}` : ''}`
+    );
+  },
+};
+
+// ============================================================================
+// External Devices API
+// ============================================================================
+
+export const externalApi = {
+  listDevices: () =>
+    request<{ ok: boolean; devices: import('@/types').ExternalDeviceDoc[]; total: number; error?: string }>('/external/devices'),
+
+  getDevice: (id: string) =>
+    request<{ ok: boolean; device?: import('@/types').ExternalDeviceDoc; error?: string }>(`/external/devices/${id}`),
+
+  registerDevice: (data: {
+    display_name: string;
+    mac: string;
+    ip: string;
+    protocol: string;
+    username?: string;
+    password?: string;
+  }) =>
+    request<{ ok: boolean; device?: import('@/types').ExternalDeviceDoc; error?: string }>('/external/devices', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteDevice: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/external/devices/${id}`, {
+      method: 'DELETE',
+    }),
+
+  testConnection: (data: {
+    ip: string;
+    protocol: string;
+    username?: string;
+    password?: string;
+  }) =>
+    request<{ success: boolean; error?: string; model?: string; firmware?: string }>('/external/devices/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  pollDevice: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/external/devices/${id}/poll`, {
+      method: 'POST',
+    }),
+
+  getClients: (deviceId?: string) => {
+    const query = new URLSearchParams();
+    if (deviceId) query.set('device_id', deviceId);
+    const qs = query.toString();
+    return request<{ ok: boolean; clients: import('@/types').ExternalClientDoc[]; total: number; error?: string }>(
+      `/external/clients${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getSummary: () =>
+    request<{ ok: boolean; summary: import('@/types').ExternalSummary; error?: string }>('/external/summary'),
+};
+
+// ============================================================================
 // Audit API
 // ============================================================================
 

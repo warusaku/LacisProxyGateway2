@@ -13,9 +13,11 @@ use tokio::sync::RwLock;
 use crate::config::AuthConfig;
 use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
+use crate::external::ExternalDeviceManager;
 use crate::geoip::GeoIpReader;
 use crate::notify::DiscordNotifier;
 use crate::omada::OmadaManager;
+use crate::openwrt::OpenWrtManager;
 
 /// Shared proxy router state
 #[derive(Clone)]
@@ -28,6 +30,8 @@ pub struct ProxyState {
     pub geoip: Option<Arc<GeoIpReader>>,
     pub auth_config: AuthConfig,
     pub omada_manager: Arc<OmadaManager>,
+    pub openwrt_manager: Arc<OpenWrtManager>,
+    pub external_manager: Arc<ExternalDeviceManager>,
 }
 
 impl ProxyState {
@@ -37,6 +41,8 @@ impl ProxyState {
         geoip_db_path: Option<&str>,
         auth_config: AuthConfig,
         omada_manager: Arc<OmadaManager>,
+        openwrt_manager: Arc<OpenWrtManager>,
+        external_manager: Arc<ExternalDeviceManager>,
     ) -> anyhow::Result<Self> {
         // Load initial routes from database (with DDNS hostname info)
         let routes = app_state.mysql.list_active_routes_with_ddns().await?;
@@ -72,6 +78,8 @@ impl ProxyState {
             geoip,
             auth_config,
             omada_manager,
+            openwrt_manager,
+            external_manager,
         })
     }
 

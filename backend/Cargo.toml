@@ -59,6 +59,10 @@ bcrypt = "0.15"
 axum-extra = { version = "0.9", features = ["cookie"] }
 base64 = "0.22"
 
+# WireGuard key generation
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+rand = "0.8"
+
 [dev-dependencies]
 tokio-test = "0.4"
 

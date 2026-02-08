@@ -4,11 +4,14 @@ pub mod auth;
 mod audit;
 mod dashboard;
 mod ddns;
+pub mod external;
 mod nginx;
 mod omada;
+pub mod openwrt;
 mod routes;
 mod security;
 mod settings;
+pub mod wireguard;
 
 pub use self::audit::*;
 pub use self::dashboard::*;

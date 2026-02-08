@@ -1,8 +1,10 @@
 //! MongoDB database module
 
 mod access_log;
+pub mod external;
 mod ip_history;
 pub mod omada;
+pub mod openwrt;
 mod security_events;
 
 use mongodb::{Client, Database};
