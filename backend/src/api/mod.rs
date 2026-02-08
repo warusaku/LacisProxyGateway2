@@ -1,6 +1,7 @@
 //! API module - HTTP handlers and routes
 
 pub(crate) mod admin_guard;
+pub(crate) mod auth_middleware;
 pub mod handlers;
 
 use axum::{
@@ -11,14 +12,37 @@ use axum::{
 
 use crate::proxy::ProxyState;
 
-pub fn routes(_state: ProxyState) -> Router<ProxyState> {
-    // Public routes - accessible from any network (monitoring/health check)
+pub fn routes(state: ProxyState) -> Router<ProxyState> {
+    // ========================================================================
+    // Group 1: Public routes - no auth, no network guard (health checks)
+    // ========================================================================
     let public = Router::new()
         .route("/health", get(handlers::health_check))
         .route("/api/health", get(handlers::health_check));
 
-    // Admin routes - restricted to private networks only (192.168.x.x, 10.x.x.x, etc.)
-    let admin = Router::new()
+    // ========================================================================
+    // Group 2: Auth endpoints - internet_access_guard only (no require_auth)
+    // Login endpoints must be accessible without an existing session
+    // ========================================================================
+    let auth_open = Router::new()
+        .route("/api/auth/login/local", post(handlers::auth::login_local))
+        .route(
+            "/api/auth/login/lacisoath",
+            post(handlers::auth::login_lacisoath),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_guard::internet_access_guard,
+        ));
+
+    // ========================================================================
+    // Group 3: Protected routes - internet_access_guard + require_auth
+    // All admin/data endpoints require authentication
+    // ========================================================================
+    let protected = Router::new()
+        // Auth session endpoints
+        .route("/api/auth/me", get(handlers::auth::auth_me))
+        .route("/api/auth/logout", post(handlers::auth::auth_logout))
         // Proxy routes management
         .route("/api/routes", get(handlers::list_routes))
         .route("/api/routes", post(handlers::create_route))
@@ -60,7 +84,10 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
         )
         // Restart settings
         .route("/api/settings/restart", get(handlers::get_restart_settings))
-        .route("/api/settings/restart", put(handlers::update_restart_settings))
+        .route(
+            "/api/settings/restart",
+            put(handlers::update_restart_settings),
+        )
         .route(
             "/api/settings/restart/trigger",
             post(handlers::trigger_manual_restart),
@@ -99,23 +126,48 @@ pub fn routes(_state: ProxyState) -> Router<ProxyState> {
             "/api/dashboard/error-summary",
             get(handlers::get_error_summary),
         )
-        .route("/api/dashboard/ssl-status", get(handlers::get_ssl_status))
-        .route("/api/dashboard/server-health", get(handlers::get_server_health))
+        .route(
+            "/api/dashboard/ssl-status",
+            get(handlers::get_ssl_status),
+        )
+        .route(
+            "/api/dashboard/server-health",
+            get(handlers::get_server_health),
+        )
         // Omada
         .route("/api/omada/status", get(handlers::get_network_status))
         .route("/api/omada/test", post(handlers::test_connection))
         // Nginx management
         .route("/api/nginx/status", get(handlers::get_nginx_status))
         .route("/api/nginx/config", get(handlers::get_nginx_config))
-        .route("/api/nginx/enable-full-proxy", post(handlers::enable_full_proxy))
+        .route(
+            "/api/nginx/enable-full-proxy",
+            post(handlers::enable_full_proxy),
+        )
         .route("/api/nginx/reload", post(handlers::reload_nginx_handler))
         .route("/api/nginx/test", post(handlers::test_nginx_config_handler))
         .route("/api/nginx/body-size", put(handlers::update_body_size))
-        .route("/api/nginx/template-settings", get(handlers::get_nginx_template_settings))
-        .route("/api/nginx/template-settings", put(handlers::update_nginx_template_settings))
-        .route("/api/nginx/regenerate", post(handlers::regenerate_nginx_config))
-        // Apply private network guard to all admin routes
-        .layer(middleware::from_fn(admin_guard::require_private_network));
+        .route(
+            "/api/nginx/template-settings",
+            get(handlers::get_nginx_template_settings),
+        )
+        .route(
+            "/api/nginx/template-settings",
+            put(handlers::update_nginx_template_settings),
+        )
+        .route(
+            "/api/nginx/regenerate",
+            post(handlers::regenerate_nginx_config),
+        )
+        // Apply middleware layers (order: inner first, so require_auth runs before internet_access_guard)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware::require_auth,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_guard::internet_access_guard,
+        ));
 
-    public.merge(admin)
+    public.merge(auth_open).merge(protected)
 }

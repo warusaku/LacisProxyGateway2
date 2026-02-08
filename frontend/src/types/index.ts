@@ -248,6 +248,27 @@ export interface SecurityEventSearchParams {
 }
 
 // ============================================================================
+// Authentication
+// ============================================================================
+
+export interface AuthUser {
+  sub: string;
+  lacis_id?: string;
+  permission: number;
+  auth_method: 'local' | 'lacisoath';
+}
+
+export interface AuthResponse {
+  ok: boolean;
+  user: AuthUser;
+}
+
+export interface LocalLoginRequest {
+  email: string;
+  password: string;
+}
+
+// ============================================================================
 // API Response
 // ============================================================================
 

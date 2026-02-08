@@ -1,21 +1,26 @@
-//! Admin access guard - restricts API access to private networks only
+//! Internet access guard - controls API access based on network origin and settings
 //!
-//! Allows: 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.0/8, ::1
-//! Denies: all other (internet) addresses with 403 Forbidden
-//!
-//! Future: replace with Firebase Authentication + 2FA for internet access
+//! Allows: Private networks (192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.0/8, ::1) always pass
+//! Public networks: Only allowed when internet_access_enabled setting is true
+//! Authentication is handled separately by auth_middleware
 
 use axum::{
     body::Body,
-    extract::ConnectInfo,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
+    Json,
 };
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-/// Middleware that rejects requests from non-private networks.
-pub async fn require_private_network(
+use crate::proxy::ProxyState;
+
+/// Middleware that controls access based on network origin.
+/// Private networks always pass through.
+/// Public networks require internet_access_enabled setting to be true.
+pub async fn internet_access_guard(
+    State(state): State<ProxyState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: Request<Body>,
     next: Next,
@@ -23,19 +28,38 @@ pub async fn require_private_network(
     let client_ip_str = extract_client_ip(req.headers(), addr);
 
     if is_private_network(&client_ip_str) {
+        return next.run(req).await;
+    }
+
+    // Check internet_access_enabled setting (DB > config fallback)
+    let enabled = state
+        .app_state
+        .mysql
+        .get_setting_bool("internet_access_enabled")
+        .await
+        .unwrap_or(state.auth_config.internet_access_enabled);
+
+    if enabled {
         next.run(req).await
     } else {
         tracing::warn!(
-            "Admin API access denied from external IP: {} (path: {})",
+            "Internet access denied for external IP: {} (path: {})",
             client_ip_str,
             req.uri().path()
         );
-        (StatusCode::FORBIDDEN, "Admin access denied from external network").into_response()
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Internet access is disabled",
+                "status": 403
+            })),
+        )
+            .into_response()
     }
 }
 
 /// Check if an IP address belongs to a private/local network (RFC 1918 + loopback)
-fn is_private_network(ip_str: &str) -> bool {
+pub fn is_private_network(ip_str: &str) -> bool {
     match ip_str.parse::<IpAddr>() {
         Ok(IpAddr::V4(ipv4)) => {
             ipv4.is_private()       // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16

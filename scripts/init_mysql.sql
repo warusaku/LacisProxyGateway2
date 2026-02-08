@@ -81,7 +81,8 @@ INSERT INTO settings (setting_key, setting_value, description) VALUES
     ('restart_scheduled_time', '04:00', 'Scheduled restart time (HH:MM, 24h format)'),
     ('restart_auto_enabled', 'false', 'Enable auto-restart on high resource usage'),
     ('restart_cpu_threshold', '90', 'CPU threshold percentage for auto-restart'),
-    ('restart_ram_threshold', '90', 'RAM threshold percentage for auto-restart')
+    ('restart_ram_threshold', '90', 'RAM threshold percentage for auto-restart'),
+    ('internet_access_enabled', 'false', 'Allow management UI access from internet (requires authentication)')
 ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
 -- Nginx Template Settings (15 keys)

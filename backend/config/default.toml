@@ -15,3 +15,12 @@ mongodb_url = "mongodb://localhost:27017"
 
 # [discord]
 # webhook_url = "https://discord.com/api/webhooks/..."
+
+[auth]
+jwt_secret = "CHANGE_ME_IN_PRODUCTION"
+session_duration_hours = 24
+local_email = "webadmin@mijeos.com"
+local_password_hash = ""
+lacisoath_required_permission = 80
+lacisoath_required_fid = "9966"
+internet_access_enabled = false

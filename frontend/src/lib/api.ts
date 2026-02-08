@@ -23,6 +23,7 @@ import type {
   AccessLogSearchParams,
   SecurityEventSearchParams,
   IpExclusionParams,
+  AuthResponse,
 } from '@/types';
 
 const API_BASE = '/LacisProxyGateway2/api';
@@ -30,6 +31,7 @@ const API_BASE = '/LacisProxyGateway2/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
@@ -392,7 +394,9 @@ export const dashboardApi = {
     if (params.limit !== undefined) query.set('limit', params.limit.toString());
     if (params.exclude_ips) query.set('exclude_ips', params.exclude_ips);
     if (params.exclude_lan) query.set('exclude_lan', 'true');
-    const response = await fetch(`${API_BASE}/dashboard/access-log/export?${query}`);
+    const response = await fetch(`${API_BASE}/dashboard/access-log/export?${query}`, {
+      credentials: 'include',
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -501,6 +505,35 @@ export interface NginxTemplateSettings {
   header_permissions_policy: string;
   header_csp: string;
 }
+
+// ============================================================================
+// Auth API
+// ============================================================================
+
+export const authApi = {
+  loginLocal: (email: string, password: string) =>
+    request<AuthResponse>('/auth/login/local', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  loginLacisOath: (token: string) =>
+    request<AuthResponse>('/auth/login/lacisoath', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
+  me: () => request<AuthResponse>('/auth/me'),
+
+  logout: () =>
+    request<{ ok: boolean }>('/auth/logout', {
+      method: 'POST',
+    }),
+};
+
+// ============================================================================
+// Nginx API
+// ============================================================================
 
 export const nginxApi = {
   getStatus: () => request<NginxStatus>('/nginx/status'),

@@ -468,6 +468,55 @@ pub struct SecurityEventSearchQuery {
 }
 
 // ============================================================================
+// Authentication Models
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct LocalLoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LacisOathLoginRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionClaims {
+    pub sub: String,
+    pub lacis_id: Option<String>,
+    pub permission: i32,
+    pub auth_method: String,
+    pub exp: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub sub: String,
+    pub lacis_id: Option<String>,
+    pub permission: i32,
+    pub auth_method: String,
+}
+
+impl From<SessionClaims> for AuthUser {
+    fn from(claims: SessionClaims) -> Self {
+        Self {
+            sub: claims.sub,
+            lacis_id: claims.lacis_id,
+            permission: claims.permission,
+            auth_method: claims.auth_method,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthResponse {
+    pub ok: bool,
+    pub user: AuthUser,
+}
+
+// ============================================================================
 // Audit Log Models
 // ============================================================================
 

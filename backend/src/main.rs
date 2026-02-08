@@ -54,11 +54,12 @@ async fn main() -> anyhow::Result<()> {
     // Initialize notifier
     let notifier = Arc::new(DiscordNotifier::new(app_state.clone()));
 
-    // Initialize proxy state (includes DdnsUpdater and optional GeoIP)
+    // Initialize proxy state (includes DdnsUpdater, optional GeoIP, and auth config)
     let proxy_state = ProxyState::new(
         app_state.clone(),
         notifier.clone(),
         config.server.geoip_db_path.as_deref(),
+        config.auth,
     )
     .await?;
     let route_count = proxy_state.router.read().await.len();

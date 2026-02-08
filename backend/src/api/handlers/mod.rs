@@ -1,5 +1,6 @@
 //! HTTP handlers module
 
+pub mod auth;
 mod audit;
 mod dashboard;
 mod ddns;

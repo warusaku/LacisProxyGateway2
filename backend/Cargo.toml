@@ -53,6 +53,12 @@ regex = "1.12.3"
 # GeoIP lookup
 maxminddb = "0.27"
 
+# Authentication
+jsonwebtoken = "9"
+bcrypt = "0.15"
+axum-extra = { version = "0.9", features = ["cookie"] }
+base64 = "0.22"
+
 [dev-dependencies]
 tokio-test = "0.4"
 

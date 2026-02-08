@@ -10,6 +10,7 @@ pub use self::router::ProxyRouter;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::config::AuthConfig;
 use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
 use crate::geoip::GeoIpReader;
@@ -24,6 +25,7 @@ pub struct ProxyState {
     pub ddns_updater: Arc<DdnsUpdater>,
     pub notifier: Arc<DiscordNotifier>,
     pub geoip: Option<Arc<GeoIpReader>>,
+    pub auth_config: AuthConfig,
 }
 
 impl ProxyState {
@@ -31,6 +33,7 @@ impl ProxyState {
         app_state: AppState,
         notifier: Arc<DiscordNotifier>,
         geoip_db_path: Option<&str>,
+        auth_config: AuthConfig,
     ) -> anyhow::Result<Self> {
         // Load initial routes from database (with DDNS hostname info)
         let routes = app_state.mysql.list_active_routes_with_ddns().await?;
@@ -64,6 +67,7 @@ impl ProxyState {
             ddns_updater,
             notifier,
             geoip,
+            auth_config,
         })
     }
 
