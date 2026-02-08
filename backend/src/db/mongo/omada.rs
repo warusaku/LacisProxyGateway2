@@ -170,8 +170,11 @@ impl MongoDb {
         let collection = self.db.collection::<bson::Document>("omada_controllers");
 
         let filter = doc! { "controller_id": &doc.controller_id };
-        let bson_doc =
+        let mut bson_doc =
             bson::to_document(doc).map_err(|e| format!("Serialize controller: {}", e))?;
+
+        // Remove created_at from $set to avoid conflict with $setOnInsert
+        bson_doc.remove("created_at");
 
         let update = doc! {
             "$set": bson_doc,
