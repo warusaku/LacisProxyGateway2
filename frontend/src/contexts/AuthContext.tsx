@@ -21,7 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const isLoginPage = pathname === '/LacisProxyGateway2/login';
+  // usePathname() returns path WITHOUT basePath (e.g. '/login', '/')
+  const isLoginPage = pathname === '/login';
 
   // Check session on mount
   useEffect(() => {
@@ -37,17 +38,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         setUser(null);
+        // Redirect to login when auth check fails on non-login pages
+        router.push('/login');
       })
       .finally(() => {
         setLoading(false);
       });
-  }, [isLoginPage]);
+  }, [isLoginPage, router]);
 
+  // router.push() auto-prepends basePath, so use paths WITHOUT basePath
   const login = useCallback(
     async (_method: 'local', data: { email: string; password: string }) => {
       const res = await authApi.loginLocal(data.email, data.password);
       setUser(res.user);
-      router.push('/LacisProxyGateway2');
+      router.push('/');
     },
     [router],
   );
@@ -56,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (token: string) => {
       const res = await authApi.loginLacisOath(token);
       setUser(res.user);
-      router.push('/LacisProxyGateway2');
+      router.push('/');
     },
     [router],
   );
@@ -64,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await authApi.logout();
     setUser(null);
-    router.push('/LacisProxyGateway2/login');
+    router.push('/login');
   }, [router]);
 
   return (

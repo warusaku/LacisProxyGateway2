@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// basePath from next.config.mjs
+const BASE_PATH = '/LacisProxyGateway2';
+
 export function middleware(request: NextRequest) {
   const session = request.cookies.get('lpg_session');
   const { pathname } = request.nextUrl;
 
-  const isLoginPage = pathname === '/LacisProxyGateway2/login';
-  const isApiRoute = pathname.startsWith('/LacisProxyGateway2/api');
-  const isStaticAsset =
-    pathname.startsWith('/LacisProxyGateway2/_next') ||
-    pathname.includes('.');
+  // request.nextUrl.pathname includes basePath, so strip it for route logic
+  const path = pathname.startsWith(BASE_PATH)
+    ? pathname.slice(BASE_PATH.length) || '/'
+    : pathname;
+
+  const isLoginPage = path === '/login';
+  const isApiRoute = path.startsWith('/api');
+  const isStaticAsset = path.startsWith('/_next') || path.includes('.');
 
   // Skip middleware for API routes and static assets
   if (isApiRoute || isStaticAsset) {
@@ -17,17 +23,18 @@ export function middleware(request: NextRequest) {
 
   // No session + not login page → redirect to login
   if (!session && !isLoginPage) {
-    return NextResponse.redirect(new URL('/LacisProxyGateway2/login', request.url));
+    return NextResponse.redirect(new URL(`${BASE_PATH}/login`, request.url));
   }
 
   // Has session + login page → redirect to dashboard
   if (session && isLoginPage) {
-    return NextResponse.redirect(new URL('/LacisProxyGateway2', request.url));
+    return NextResponse.redirect(new URL(BASE_PATH, request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/LacisProxyGateway2/:path*'],
+  // matcher operates on paths AFTER basePath is stripped by Next.js
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

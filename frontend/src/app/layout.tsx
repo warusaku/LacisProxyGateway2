@@ -16,20 +16,41 @@ const navItems = [
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
 
-  const isLoginPage = pathname === '/LacisProxyGateway2/login';
+  // usePathname() returns path WITHOUT basePath (e.g. '/login', '/', '/routes')
+  const isLoginPage = pathname === '/login';
 
   const isActive = (href: string) => {
-    if (href === '/LacisProxyGateway2') {
-      return pathname === '/LacisProxyGateway2' || pathname === '/LacisProxyGateway2/';
+    // navItems hrefs include basePath for <a> tags; strip it for comparison with usePathname()
+    const normalizedHref = href.replace(/^\/LacisProxyGateway2/, '') || '/';
+    if (normalizedHref === '/') {
+      return pathname === '/' || pathname === '';
     }
-    return pathname?.startsWith(href);
+    return pathname?.startsWith(normalizedHref) ?? false;
   };
 
   // Login page: no sidebar
   if (isLoginPage) {
     return <>{children}</>;
+  }
+
+  // Show loading while auth check is in progress
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Not authenticated: AuthContext handles redirect, show minimal UI
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-gray-400">Redirecting...</div>
+      </div>
+    );
   }
 
   return (
@@ -68,27 +89,25 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* User info + logout */}
-        {user && (
-          <div className="pt-4 border-t border-border space-y-2">
-            <div className="text-xs text-gray-400 truncate" title={user.sub}>
-              {user.auth_method === 'lacisoath' ? 'LacisOath' : 'Local'}: {user.sub}
-            </div>
-            <button
-              onClick={logout}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
-              </svg>
-              Logout
-            </button>
+        <div className="pt-4 border-t border-border space-y-2">
+          <div className="text-xs text-gray-400 truncate" title={user.sub}>
+            {user.auth_method === 'lacisoath' ? 'LacisOath' : 'Local'}: {user.sub}
           </div>
-        )}
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+            Logout
+          </button>
+        </div>
 
         <div className="pt-4 border-t border-border text-xs text-gray-500">
           v{process.env.npm_package_version || '0.1.0'}
