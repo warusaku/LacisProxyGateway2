@@ -12,6 +12,7 @@ function LoginContent() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showLocalLogin, setShowLocalLogin] = useState(false);
 
   // Handle LacisOath callback
   useEffect(() => {
@@ -107,7 +108,7 @@ function LoginContent() {
             </div>
           )}
 
-          {/* LacisOath button */}
+          {/* LacisOath login (primary) */}
           <a
             href={lacisOathUrl}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors font-medium"
@@ -123,52 +124,57 @@ function LoginContent() {
             Login with LacisOath
           </a>
 
-          {/* Divider */}
-          <div className="flex items-center my-6">
-            <div className="flex-1 border-t border-border" />
-            <span className="px-4 text-gray-500 text-sm">or</span>
-            <div className="flex-1 border-t border-border" />
-          </div>
-
-          {/* Local login form */}
-          <form onSubmit={handleLocalLogin} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={submitting}
-                className="w-full px-3 py-2 bg-background border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                placeholder="webadmin@mijeos.com"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={submitting}
-                className="w-full px-3 py-2 bg-background border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              />
-            </div>
+          {/* Local login (fallback) - collapsed by default */}
+          {!showLocalLogin ? (
             <button
-              type="submit"
-              disabled={submitting}
-              className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition-colors font-medium disabled:opacity-50"
+              type="button"
+              onClick={() => setShowLocalLogin(true)}
+              className="w-full mt-6 text-center text-xs text-gray-600 hover:text-gray-400 transition-colors"
             >
-              {submitting ? 'Signing in...' : 'Sign in with Local Account'}
+              LacisOathに接続できない場合
             </button>
-          </form>
+          ) : (
+            <>
+              <div className="flex items-center mt-6 mb-4">
+                <div className="flex-1 border-t border-border" />
+                <span className="px-4 text-gray-500 text-xs">ローカルマスターアカウント</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+              <form onSubmit={handleLocalLogin} className="space-y-3">
+                <div>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    disabled={submitting}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    placeholder="Email"
+                  />
+                </div>
+                <div>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    disabled={submitting}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    placeholder="Password"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition-colors text-sm disabled:opacity-50"
+                >
+                  {submitting ? 'Signing in...' : 'Sign in'}
+                </button>
+              </form>
+            </>
+          )}
         </div>
 
         {/* Footer */}
