@@ -138,7 +138,31 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/dashboard/server-health",
             get(handlers::get_server_health),
         )
-        // Omada
+        // Omada: Controller management
+        .route("/api/omada/controllers", post(handlers::register_controller))
+        .route("/api/omada/controllers", get(handlers::list_controllers))
+        .route(
+            "/api/omada/controllers/test",
+            post(handlers::test_controller_connection),
+        )
+        .route(
+            "/api/omada/controllers/:id",
+            get(handlers::get_controller),
+        )
+        .route(
+            "/api/omada/controllers/:id",
+            delete(handlers::delete_controller),
+        )
+        .route(
+            "/api/omada/controllers/:id/sync",
+            post(handlers::sync_controller),
+        )
+        // Omada: Data viewing
+        .route("/api/omada/devices", get(handlers::get_omada_devices))
+        .route("/api/omada/clients", get(handlers::get_omada_clients))
+        .route("/api/omada/wireguard", get(handlers::get_omada_wireguard))
+        .route("/api/omada/summary", get(handlers::get_omada_summary))
+        // Omada: Legacy compatibility
         .route("/api/omada/status", get(handlers::get_network_status))
         .route("/api/omada/test", post(handlers::test_connection))
         // Nginx management

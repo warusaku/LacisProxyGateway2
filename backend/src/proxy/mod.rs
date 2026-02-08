@@ -15,6 +15,7 @@ use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
 use crate::geoip::GeoIpReader;
 use crate::notify::DiscordNotifier;
+use crate::omada::OmadaManager;
 
 /// Shared proxy router state
 #[derive(Clone)]
@@ -26,6 +27,7 @@ pub struct ProxyState {
     pub notifier: Arc<DiscordNotifier>,
     pub geoip: Option<Arc<GeoIpReader>>,
     pub auth_config: AuthConfig,
+    pub omada_manager: Arc<OmadaManager>,
 }
 
 impl ProxyState {
@@ -34,6 +36,7 @@ impl ProxyState {
         notifier: Arc<DiscordNotifier>,
         geoip_db_path: Option<&str>,
         auth_config: AuthConfig,
+        omada_manager: Arc<OmadaManager>,
     ) -> anyhow::Result<Self> {
         // Load initial routes from database (with DDNS hostname info)
         let routes = app_state.mysql.list_active_routes_with_ddns().await?;
@@ -68,6 +71,7 @@ impl ProxyState {
             notifier,
             geoip,
             auth_config,
+            omada_manager,
         })
     }
 

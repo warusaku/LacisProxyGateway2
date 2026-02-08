@@ -2,6 +2,7 @@
 
 mod access_log;
 mod ip_history;
+pub mod omada;
 mod security_events;
 
 use mongodb::{Client, Database};

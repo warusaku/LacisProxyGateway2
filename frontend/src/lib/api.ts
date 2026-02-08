@@ -433,13 +433,210 @@ export interface NetworkStatus {
   error?: string;
 }
 
+// --- Multi-controller types ---
+
+export interface OmadaSiteMapping {
+  site_id: string;
+  name: string;
+  region?: string;
+  fid?: string;
+  tid?: string;
+  fid_display_name?: string;
+}
+
+export interface OmadaControllerDoc {
+  controller_id: string;
+  display_name: string;
+  base_url: string;
+  client_id: string;
+  client_secret: string;
+  omadac_id: string;
+  controller_ver: string;
+  api_ver: string;
+  status: string;
+  last_error?: string;
+  sites: OmadaSiteMapping[];
+  last_synced_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OmadaDeviceDoc {
+  mac: string;
+  controller_id: string;
+  site_id: string;
+  name: string;
+  device_type: string;
+  model?: string;
+  ip?: string;
+  status: number;
+  firmware_version?: string;
+  lacis_id?: string;
+  product_type: string;
+  network_device_type: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OmadaClientDoc {
+  mac: string;
+  controller_id: string;
+  site_id: string;
+  name?: string;
+  host_name?: string;
+  ip?: string;
+  ipv6_list: string[];
+  vendor?: string;
+  device_type?: string;
+  device_category?: string;
+  os_name?: string;
+  model?: string;
+  connect_type?: number;
+  wireless: boolean;
+  ssid?: string;
+  signal_level?: number;
+  rssi?: number;
+  ap_mac?: string;
+  ap_name?: string;
+  wifi_mode?: number;
+  channel?: number;
+  switch_mac?: string;
+  switch_name?: string;
+  port?: number;
+  vid?: number;
+  traffic_down: number;
+  traffic_up: number;
+  uptime: number;
+  active: boolean;
+  blocked: boolean;
+  guest: boolean;
+  lacis_id?: string;
+  last_seen_at?: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OmadaWgPeerDoc {
+  peer_id: string;
+  controller_id: string;
+  site_id: string;
+  name: string;
+  status: boolean;
+  interface_id: string;
+  interface_name: string;
+  public_key: string;
+  allow_address: string[];
+  keep_alive: number;
+  comment?: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OmadaSummary {
+  total_controllers: number;
+  connected_controllers: number;
+  total_devices: number;
+  online_devices: number;
+  total_clients: number;
+  active_clients: number;
+  total_wg_peers: number;
+  active_wg_peers: number;
+}
+
+export interface OmadaTestResult {
+  success: boolean;
+  controller_ver?: string;
+  api_ver?: string;
+  omadac_id?: string;
+  sites: { site_id: string; name: string }[];
+  device_count: number;
+  error?: string;
+}
+
 export const omadaApi = {
+  // Legacy compatibility
   getStatus: () => request<NetworkStatus>('/omada/status'),
 
   testConnection: () =>
     request<{ success: boolean; message: string; devices?: number }>('/omada/test', {
       method: 'POST',
     }),
+
+  // Controller management
+  listControllers: () =>
+    request<{ ok: boolean; controllers: OmadaControllerDoc[]; error?: string }>('/omada/controllers'),
+
+  getController: (id: string) =>
+    request<{ ok: boolean; controller?: OmadaControllerDoc; error?: string }>(`/omada/controllers/${id}`),
+
+  registerController: (data: {
+    display_name: string;
+    base_url: string;
+    client_id: string;
+    client_secret: string;
+  }) =>
+    request<{ ok: boolean; controller?: OmadaControllerDoc; error?: string }>('/omada/controllers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteController: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/omada/controllers/${id}`, {
+      method: 'DELETE',
+    }),
+
+  testControllerConnection: (data: {
+    base_url: string;
+    client_id: string;
+    client_secret: string;
+  }) =>
+    request<OmadaTestResult>('/omada/controllers/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  syncController: (id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>(`/omada/controllers/${id}/sync`, {
+      method: 'POST',
+    }),
+
+  // Data viewing
+  getDevices: (controllerId?: string, siteId?: string) => {
+    const query = new URLSearchParams();
+    if (controllerId) query.set('controller_id', controllerId);
+    if (siteId) query.set('site_id', siteId);
+    const qs = query.toString();
+    return request<{ ok: boolean; devices: OmadaDeviceDoc[]; total: number; error?: string }>(
+      `/omada/devices${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getClients: (controllerId?: string, siteId?: string, active?: boolean) => {
+    const query = new URLSearchParams();
+    if (controllerId) query.set('controller_id', controllerId);
+    if (siteId) query.set('site_id', siteId);
+    if (active !== undefined) query.set('active', active.toString());
+    const qs = query.toString();
+    return request<{ ok: boolean; clients: OmadaClientDoc[]; total: number; error?: string }>(
+      `/omada/clients${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getWireguard: (controllerId?: string, siteId?: string) => {
+    const query = new URLSearchParams();
+    if (controllerId) query.set('controller_id', controllerId);
+    if (siteId) query.set('site_id', siteId);
+    const qs = query.toString();
+    return request<{ ok: boolean; peers: OmadaWgPeerDoc[]; total: number; error?: string }>(
+      `/omada/wireguard${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getSummary: () =>
+    request<{ ok: boolean; summary: OmadaSummary; error?: string }>('/omada/summary'),
 };
 
 // ============================================================================

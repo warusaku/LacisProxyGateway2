@@ -27,6 +27,7 @@ use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
 use crate::health::HealthChecker;
 use crate::notify::DiscordNotifier;
+use crate::omada::{OmadaManager, OmadaSyncer};
 use crate::proxy::ProxyState;
 use crate::restart::RestartScheduler;
 
@@ -54,12 +55,29 @@ async fn main() -> anyhow::Result<()> {
     // Initialize notifier
     let notifier = Arc::new(DiscordNotifier::new(app_state.clone()));
 
-    // Initialize proxy state (includes DdnsUpdater, optional GeoIP, and auth config)
+    // Initialize OmadaManager (multi-controller management)
+    let omada_manager = Arc::new(OmadaManager::new(app_state.mongo.clone()));
+
+    // MySQL → MongoDB migration (one-time, startup)
+    match omada_manager.migrate_from_mysql(&app_state.mysql).await {
+        Ok(true) => tracing::info!("Migrated omada_config from MySQL to MongoDB"),
+        Ok(false) => tracing::debug!("Omada MySQL migration skipped (already migrated or empty)"),
+        Err(e) => tracing::warn!("Omada MySQL migration failed (non-fatal): {}", e),
+    }
+
+    // Load existing controllers from MongoDB
+    match omada_manager.load_all().await {
+        Ok(count) => tracing::info!("OmadaManager loaded {} controllers", count),
+        Err(e) => tracing::warn!("OmadaManager load failed (non-fatal): {}", e),
+    }
+
+    // Initialize proxy state (includes DdnsUpdater, optional GeoIP, auth config, OmadaManager)
     let proxy_state = ProxyState::new(
         app_state.clone(),
         notifier.clone(),
         config.server.geoip_db_path.as_deref(),
         config.auth,
+        omada_manager.clone(),
     )
     .await?;
     let route_count = proxy_state.router.read().await.len();
@@ -69,7 +87,12 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Start background tasks (use the same DdnsUpdater from proxy_state)
-    start_background_tasks(app_state.clone(), notifier.clone(), proxy_state.ddns_updater.clone());
+    start_background_tasks(
+        app_state.clone(),
+        notifier.clone(),
+        proxy_state.ddns_updater.clone(),
+        omada_manager,
+    );
 
     // Build application router
     let cors = CorsLayer::permissive();
@@ -100,11 +123,12 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Start background tasks (DDNS updater, health checker, restart scheduler)
+/// Start background tasks (DDNS updater, health checker, restart scheduler, Omada syncer)
 fn start_background_tasks(
     app_state: AppState,
     notifier: Arc<DiscordNotifier>,
     ddns_updater: Arc<DdnsUpdater>,
+    omada_manager: Arc<OmadaManager>,
 ) {
     // DDNS updater (use shared instance)
     tokio::spawn(async move {
@@ -121,6 +145,15 @@ fn start_background_tasks(
     let restart_scheduler = Arc::new(RestartScheduler::new(app_state.mysql.clone()));
     tokio::spawn(async move {
         restart_scheduler.start_monitoring().await;
+    });
+
+    // Omada syncer (60s interval, all controllers)
+    let omada_syncer = Arc::new(OmadaSyncer::new(
+        omada_manager,
+        app_state.mongo.clone(),
+    ));
+    tokio::spawn(async move {
+        omada_syncer.start().await;
     });
 
     tracing::info!("Background tasks started");
