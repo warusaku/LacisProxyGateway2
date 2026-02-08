@@ -648,28 +648,28 @@ fn parse_meminfo() -> (MemoryInfo, SwapInfo) {
     (memory, swap)
 }
 
-fn get_cpu_usage() -> f64 {
-    // Read /proc/stat twice with a small delay to calculate CPU usage
-    let read_stat = || -> (u64, u64) {
-        let content = std::fs::read_to_string("/proc/stat").unwrap_or_default();
-        if let Some(line) = content.lines().next() {
-            let parts: Vec<u64> = line
-                .split_whitespace()
-                .skip(1)
-                .filter_map(|s| s.parse().ok())
-                .collect();
-            if parts.len() >= 4 {
-                let idle = parts[3];
-                let total: u64 = parts.iter().sum();
-                return (idle, total);
-            }
+fn read_proc_stat() -> (u64, u64) {
+    let content = std::fs::read_to_string("/proc/stat").unwrap_or_default();
+    if let Some(line) = content.lines().next() {
+        let parts: Vec<u64> = line
+            .split_whitespace()
+            .skip(1)
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if parts.len() >= 4 {
+            let idle = parts[3] + parts.get(4).copied().unwrap_or(0); // idle + iowait
+            let total: u64 = parts.iter().sum();
+            return (idle, total);
         }
-        (0, 0)
-    };
+    }
+    (0, 0)
+}
 
-    let (idle1, total1) = read_stat();
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let (idle2, total2) = read_stat();
+async fn get_cpu_usage() -> f64 {
+    // Read /proc/stat twice with 500ms interval for stable measurement
+    let (idle1, total1) = read_proc_stat();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let (idle2, total2) = read_proc_stat();
 
     let idle_delta = idle2.saturating_sub(idle1);
     let total_delta = total2.saturating_sub(total1);
@@ -830,7 +830,7 @@ pub async fn get_server_health() -> impl IntoResponse {
         .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
         .unwrap_or_else(|| "Unknown".to_string());
     let cpu_cores = cpuinfo.lines().filter(|l| l.starts_with("processor")).count() as u32;
-    let cpu_usage = get_cpu_usage();
+    let cpu_usage = get_cpu_usage().await;
 
     let cpu = CpuInfo {
         model: cpu_model,

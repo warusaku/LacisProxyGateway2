@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
   const [selectedIp, setSelectedIp] = useState<TopEntry | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
@@ -118,6 +119,7 @@ export default function Dashboard() {
       setNetwork(networkData);
       setSsl(sslData);
       setServerHealth(serverHealthData);
+      setLastUpdated(new Date());
 
       // Load analytics data (non-blocking)
       Promise.all([
@@ -341,7 +343,17 @@ export default function Dashboard() {
 
       {/* Server Health */}
       {serverHealth && (
-        <Card title="Server Health" className="mb-8">
+        <Card title={
+          <div className="flex items-center gap-3">
+            <span>Server Health</span>
+            {lastUpdated && (
+              <span className="text-xs font-normal text-gray-500">
+                Updated: {lastUpdated.toLocaleTimeString('ja-JP')}
+                <span className="ml-1 text-gray-600">(30s auto)</span>
+              </span>
+            )}
+          </div>
+        } className="mb-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* System Info */}
             <div className="space-y-2">
