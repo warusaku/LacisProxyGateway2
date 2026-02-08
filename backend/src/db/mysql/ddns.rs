@@ -15,6 +15,7 @@ impl MySqlDb {
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
+                   omada_controller_id, omada_site_id,
                    created_at, updated_at
             FROM ddns_configs
             ORDER BY id ASC
@@ -33,6 +34,7 @@ impl MySqlDb {
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
+                   omada_controller_id, omada_site_id,
                    created_at, updated_at
             FROM ddns_configs
             WHERE status = 'active'
@@ -52,6 +54,7 @@ impl MySqlDb {
             r#"
             SELECT id, provider, hostname, username, password, api_token, zone_id,
                    update_interval_sec, last_ip, last_update, last_error, status,
+                   omada_controller_id, omada_site_id,
                    created_at, updated_at
             FROM ddns_configs
             WHERE id = ?
@@ -187,6 +190,29 @@ impl MySqlDb {
             .await?;
 
         Ok(row.get::<i64, _>("count") as u32)
+    }
+
+    /// Link/unlink a DDNS config to an Omada controller/site
+    pub async fn link_ddns_omada(
+        &self,
+        id: i32,
+        controller_id: Option<&str>,
+        site_id: Option<&str>,
+    ) -> Result<bool, AppError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ddns_configs
+            SET omada_controller_id = ?, omada_site_id = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(controller_id)
+        .bind(site_id)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 

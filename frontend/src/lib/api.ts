@@ -973,3 +973,233 @@ export const nginxApi = {
       method: 'POST',
     }),
 };
+
+// ============================================================================
+// Topology API (CelestialGlobe)
+// ============================================================================
+
+export interface TopologyNode {
+  id: string;
+  label: string;
+  node_type: string;
+  mac?: string;
+  ip?: string;
+  source: string;
+  parent_id?: string;
+  lacis_id?: string;
+  candidate_lacis_id?: string;
+  product_type?: string;
+  network_device_type?: string;
+  status: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface TopologyEdge {
+  from: string;
+  to: string;
+  edge_type: string;
+  label?: string;
+}
+
+export interface TopologyMetadata {
+  total_devices: number;
+  total_clients: number;
+  controllers: number;
+  routers: number;
+  generated_at: string;
+}
+
+export interface TopologyResponse {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  metadata: TopologyMetadata;
+}
+
+export const topologyApi = {
+  getTopology: () => request<TopologyResponse>('/topology'),
+};
+
+// ============================================================================
+// Operation Logs API
+// ============================================================================
+
+export interface OperationLog {
+  operation_id: string;
+  operation_type: string;
+  initiated_by: string;
+  target?: string;
+  status: string;
+  result?: Record<string, unknown>;
+  error?: string;
+  duration_ms?: number;
+  created_at: string;
+}
+
+export interface OperationLogSummary {
+  total: number;
+  recent_24h: number;
+  recent_errors: number;
+  recent_success: number;
+  generated_at: string;
+}
+
+export const operationLogsApi = {
+  list: (params?: { operation_type?: string; status?: string; from?: string; to?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.operation_type) query.set('operation_type', params.operation_type);
+    if (params?.status) query.set('status', params.status);
+    if (params?.from) query.set('from', params.from);
+    if (params?.to) query.set('to', params.to);
+    if (params?.limit !== undefined) query.set('limit', params.limit.toString());
+    if (params?.offset !== undefined) query.set('offset', params.offset.toString());
+    const qs = query.toString();
+    return request<OperationLog[]>(`/logs/operations${qs ? `?${qs}` : ''}`);
+  },
+
+  get: (id: string) => request<OperationLog>(`/logs/operations/${id}`),
+
+  getSummary: () => request<OperationLogSummary>('/logs/operations/summary'),
+};
+
+// ============================================================================
+// Tools API
+// ============================================================================
+
+export interface ToolResult {
+  ok: boolean;
+  operation_id?: string;
+  message?: string;
+  result?: unknown;
+  error?: string;
+}
+
+export const toolsApi = {
+  syncOmada: () => request<ToolResult>('/tools/sync/omada', { method: 'POST' }),
+  syncOpenwrt: () => request<ToolResult>('/tools/sync/openwrt', { method: 'POST' }),
+  syncExternal: () => request<ToolResult>('/tools/sync/external', { method: 'POST' }),
+  ddnsUpdateAll: () => request<ToolResult>('/tools/ddns/update-all', { method: 'POST' }),
+  ping: (host: string) => request<ToolResult>('/tools/network/ping', { method: 'POST', body: JSON.stringify({ host }) }),
+  dns: (hostname: string) => request<ToolResult>('/tools/network/dns', { method: 'POST', body: JSON.stringify({ hostname }) }),
+  curl: (url: string) => request<ToolResult>('/tools/network/curl', { method: 'POST', body: JSON.stringify({ url }) }),
+  omadaApiRef: () => request<{ methods: { name: string; endpoint: string; method: string; description: string }[] }>('/tools/omada/api-ref'),
+};
+
+// ============================================================================
+// LacisID API
+// ============================================================================
+
+export interface LacisIdCandidate {
+  device_id: string;
+  source: string;
+  mac: string;
+  display_name: string;
+  product_type: string;
+  network_device_type: string;
+  candidate_lacis_id: string;
+  assigned_lacis_id?: string;
+  status: string;
+}
+
+export const lacisIdApi = {
+  candidates: () => request<LacisIdCandidate[]>('/lacis-id/candidates'),
+  compute: (mac: string, product_type: string, product_code?: string) =>
+    request<{ lacis_id: string }>('/lacis-id/compute', {
+      method: 'POST',
+      body: JSON.stringify({ mac, product_type, product_code }),
+    }),
+  assign: (deviceId: string, source: string, lacisId: string) =>
+    request<SuccessResponse>(`/lacis-id/assign/${deviceId}`, {
+      method: 'POST',
+      body: JSON.stringify({ source, lacis_id: lacisId }),
+    }),
+};
+
+// ============================================================================
+// Aranea SDK API
+// ============================================================================
+
+export interface AraneaDevice {
+  lacis_id: string;
+  mac: string;
+  product_type: string;
+  product_code: string;
+  device_type: string;
+  health_status?: string;
+  mqtt_connected?: boolean;
+  last_seen?: string;
+}
+
+export interface AraneaSummary {
+  total: number;
+  online: number;
+  offline: number;
+  mqtt_connected: number;
+}
+
+export const araneaApi = {
+  listDevices: () =>
+    request<{ ok: boolean; devices: AraneaDevice[]; error?: string }>('/aranea/devices'),
+  getDeviceState: (lacisId: string) =>
+    request<{ ok: boolean; states: unknown[]; error?: string }>(`/aranea/devices/${lacisId}/state`),
+  register: (data: { mac: string; product_type: string; product_code: string; device_type: string }) =>
+    request<{ ok: boolean; lacis_id?: string; error?: string }>('/aranea/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getSummary: () =>
+    request<{ ok: boolean; summary: AraneaSummary; error?: string }>('/aranea/summary'),
+};
+
+// ============================================================================
+// DDNS Integrated API (Phase 2 extensions)
+// ============================================================================
+
+export interface DdnsIntegrated {
+  config: DdnsConfig;
+  omada_wan_ip?: string;
+  resolved_ip?: string;
+  ip_mismatch: boolean;
+  port_forwarding: unknown[];
+  linked_controller?: string;
+}
+
+export const ddnsIntegratedApi = {
+  list: () => request<DdnsIntegrated[]>('/ddns/integrated'),
+  linkOmada: (id: number, data: { omada_controller_id: string; omada_site_id: string }) =>
+    request<SuccessResponse>(`/ddns/${id}/link-omada`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  getPortForwards: (id: number) =>
+    request<{ rules: unknown[] }>(`/ddns/${id}/port-forwards`),
+};
+
+// ============================================================================
+// Server Routes API (Phase 2 extension)
+// ============================================================================
+
+export interface ServerRoute {
+  id: number;
+  path: string;
+  target: string;
+  active: boolean;
+  strip_prefix: boolean;
+  preserve_host: boolean;
+  priority: number;
+  timeout_ms?: number;
+  websocket_support: boolean;
+  ddns_config_id?: number;
+  subnet?: {
+    network: string;
+    gateway: string;
+    vlan_id?: number;
+    controller_id?: string;
+    site_name?: string;
+  };
+  fid?: string;
+  tid?: string;
+}
+
+export const serverRoutesApi = {
+  list: () => request<ServerRoute[]>('/server-routes'),
+};

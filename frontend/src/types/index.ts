@@ -63,6 +63,8 @@ export interface DdnsConfig {
   last_update?: string;
   last_error?: string;
   status: DdnsStatus;
+  omada_controller_id?: string;
+  omada_site_id?: string;
   created_at: string;
   updated_at: string;
 }

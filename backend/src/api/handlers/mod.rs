@@ -1,26 +1,34 @@
 //! HTTP handlers module
 
 pub mod auth;
+pub mod aranea;
 mod audit;
 mod dashboard;
 mod ddns;
 pub mod external;
+mod lacis_id;
 mod nginx;
 mod omada;
 pub mod openwrt;
 mod routes;
 mod security;
 mod settings;
+mod tools;
+mod topology;
 pub mod wireguard;
 
+pub use self::aranea::*;
 pub use self::audit::*;
 pub use self::dashboard::*;
 pub use self::ddns::*;
+pub use self::lacis_id::*;
 pub use self::nginx::*;
 pub use self::omada::*;
 pub use self::routes::*;
 pub use self::security::*;
 pub use self::settings::*;
+pub use self::tools::*;
+pub use self::topology::*;
 
 use axum::{response::IntoResponse, Json};
 use serde::Serialize;

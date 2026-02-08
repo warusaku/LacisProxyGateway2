@@ -4,6 +4,7 @@
 //! security monitoring, and Discord notifications.
 
 mod api;
+mod aranea;
 mod config;
 mod db;
 mod ddns;
@@ -11,6 +12,7 @@ mod error;
 mod external;
 mod geoip;
 mod health;
+mod lacis_id;
 mod models;
 mod notify;
 mod omada;
@@ -90,6 +92,14 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("ExternalManager load failed (non-fatal): {}", e),
     }
 
+    // Initialize AraneaClient for mobes2.0 Cloud Functions proxy
+    let aranea_client = Arc::new(aranea::AraneaClient::new(config.aranea));
+    if aranea_client.is_configured() {
+        tracing::info!("AraneaClient configured (tid: {})", aranea_client.config.tid);
+    } else {
+        tracing::info!("AraneaClient not configured (no aranea section in config)");
+    }
+
     // Initialize proxy state (includes DdnsUpdater, optional GeoIP, auth config, managers)
     let proxy_state = ProxyState::new(
         app_state.clone(),
@@ -99,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         omada_manager.clone(),
         openwrt_manager.clone(),
         external_manager.clone(),
+        aranea_client,
     )
     .await?;
     let route_count = proxy_state.router.read().await.len();

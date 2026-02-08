@@ -13,6 +13,96 @@ use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
 
+/// GET /api/server-routes - List routes with subnet matching info
+pub async fn list_server_routes(
+    State(state): State<ProxyState>,
+) -> Result<impl IntoResponse, AppError> {
+    let routes = state.app_state.mysql.list_routes().await?;
+
+    // Get Omada device data for subnet matching
+    let omada_devices = state
+        .app_state
+        .mongo
+        .get_omada_devices(None, None)
+        .await
+        .unwrap_or_default();
+
+    let omada_controllers = state
+        .app_state
+        .mongo
+        .list_omada_controllers()
+        .await
+        .unwrap_or_default();
+
+    // Build subnet info from gateway devices
+    let mut server_routes = Vec::new();
+
+    for route in &routes {
+        // Parse target IP from the route's target URL
+        let target_ip = url::Url::parse(&route.target)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_string()));
+
+        let mut subnet_info: Option<serde_json::Value> = None;
+        let mut fid: Option<String> = None;
+        let mut tid: Option<String> = None;
+
+        if let Some(ref ip_str) = target_ip {
+            if let Ok(ip) = ip_str.parse::<std::net::IpAddr>() {
+                // Check each gateway device's LAN network
+                for dev in &omada_devices {
+                    if dev.device_type == "gateway" {
+                        if let Some(ref dev_ip) = dev.ip {
+                            // Check common subnet prefixes
+                            if let Ok(dev_addr) = dev_ip.parse::<std::net::IpAddr>() {
+                                // Simple /24 subnet check
+                                let net = ipnetwork::IpNetwork::new(dev_addr, 24);
+                                if let Ok(network) = net {
+                                    if network.contains(ip) {
+                                        subnet_info = Some(serde_json::json!({
+                                            "network": network.to_string(),
+                                            "gateway": dev_ip,
+                                            "controller_id": &dev.controller_id,
+                                            "site_id": &dev.site_id,
+                                        }));
+
+                                        // Find fid/tid from controller sites
+                                        if let Some(ctrl) = omada_controllers.iter().find(|c| c.controller_id == dev.controller_id) {
+                                            if let Some(site) = ctrl.sites.iter().find(|s| s.site_id == dev.site_id) {
+                                                fid = site.fid.clone();
+                                                tid = site.tid.clone();
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        server_routes.push(serde_json::json!({
+            "id": route.id,
+            "path": route.path,
+            "target": route.target,
+            "active": route.active,
+            "strip_prefix": route.strip_prefix,
+            "preserve_host": route.preserve_host,
+            "priority": route.priority,
+            "timeout_ms": route.timeout_ms,
+            "websocket_support": route.websocket_support,
+            "ddns_config_id": route.ddns_config_id,
+            "subnet": subnet_info,
+            "fid": fid,
+            "tid": tid,
+        }));
+    }
+
+    Ok(Json(server_routes))
+}
+
 /// GET /api/routes - List all proxy routes
 pub async fn list_routes(State(state): State<ProxyState>) -> Result<impl IntoResponse, AppError> {
     let routes = state.app_state.mysql.list_routes().await?;

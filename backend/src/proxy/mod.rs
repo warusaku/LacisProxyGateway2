@@ -10,6 +10,7 @@ pub use self::router::ProxyRouter;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::aranea::AraneaClient;
 use crate::config::AuthConfig;
 use crate::db::AppState;
 use crate::ddns::DdnsUpdater;
@@ -32,6 +33,7 @@ pub struct ProxyState {
     pub omada_manager: Arc<OmadaManager>,
     pub openwrt_manager: Arc<OpenWrtManager>,
     pub external_manager: Arc<ExternalDeviceManager>,
+    pub aranea_client: Arc<AraneaClient>,
 }
 
 impl ProxyState {
@@ -43,6 +45,7 @@ impl ProxyState {
         omada_manager: Arc<OmadaManager>,
         openwrt_manager: Arc<OpenWrtManager>,
         external_manager: Arc<ExternalDeviceManager>,
+        aranea_client: Arc<AraneaClient>,
     ) -> anyhow::Result<Self> {
         // Load initial routes from database (with DDNS hostname info)
         let routes = app_state.mysql.list_active_routes_with_ddns().await?;
@@ -80,6 +83,7 @@ impl ProxyState {
             omada_manager,
             openwrt_manager,
             external_manager,
+            aranea_client,
         })
     }
 

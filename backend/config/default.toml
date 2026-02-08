@@ -30,3 +30,12 @@ lacisoath_client_secret = ""
 lacisoath_auth_url = "https://mobesorder.web.app/lacis-auth/login"
 lacisoath_token_url = "https://asia-northeast1-mobesorder.cloudfunctions.net/externalAuthToken"
 lacisoath_redirect_uri = ""
+
+[aranea]
+# mobes2.0 tenant config for araneaSDK Cloud Functions proxy
+# tid = "T2025120621041161827"
+# tenant_lacis_id = "18217487937895888001"
+# tenant_user_id = "soejim@mijeos.com"
+# tenant_cic = "204965"
+device_gate_url = "https://us-central1-mobesorder.cloudfunctions.net/araneaDeviceGate"
+device_state_url = "https://asia-northeast1-mobesorder.cloudfunctions.net/deviceStateReport"

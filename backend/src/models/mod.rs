@@ -148,6 +148,8 @@ pub struct DdnsConfigRow {
     pub last_update: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
     pub status: String,
+    pub omada_controller_id: Option<String>,
+    pub omada_site_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -166,6 +168,8 @@ pub struct DdnsConfig {
     pub last_update: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
     pub status: DdnsStatus,
+    pub omada_controller_id: Option<String>,
+    pub omada_site_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -187,6 +191,8 @@ impl TryFrom<DdnsConfigRow> for DdnsConfig {
             last_update: row.last_update,
             last_error: row.last_error,
             status: row.status.parse()?,
+            omada_controller_id: row.omada_controller_id,
+            omada_site_id: row.omada_site_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -214,6 +220,13 @@ pub struct UpdateDdnsRequest {
     pub zone_id: Option<String>,
     pub update_interval_sec: Option<i32>,
     pub status: Option<DdnsStatus>,
+}
+
+/// Request to link a DDNS config to an Omada controller/site
+#[derive(Debug, Deserialize)]
+pub struct LinkOmadaRequest {
+    pub omada_controller_id: Option<String>,
+    pub omada_site_id: Option<String>,
 }
 
 fn default_update_interval() -> i32 {

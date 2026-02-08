@@ -47,6 +47,8 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Auth session endpoints
         .route("/api/auth/me", get(handlers::auth::auth_me))
         .route("/api/auth/logout", post(handlers::auth::auth_logout))
+        // Server routes (enhanced with subnet info)
+        .route("/api/server-routes", get(handlers::list_server_routes))
         // Proxy routes management
         .route("/api/routes", get(handlers::list_routes))
         .route("/api/routes", post(handlers::create_route))
@@ -63,6 +65,15 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/ddns/:id", put(handlers::update_ddns))
         .route("/api/ddns/:id", delete(handlers::delete_ddns))
         .route("/api/ddns/:id/update", post(handlers::trigger_ddns_update))
+        .route("/api/ddns/integrated", get(handlers::list_ddns_integrated))
+        .route(
+            "/api/ddns/:id/link-omada",
+            put(handlers::link_ddns_omada),
+        )
+        .route(
+            "/api/ddns/:id/port-forwards",
+            get(handlers::get_ddns_port_forwards),
+        )
         // Security
         .route("/api/security/blocked-ips", get(handlers::list_blocked_ips))
         .route("/api/security/blocked-ips", post(handlers::block_ip))
@@ -221,6 +232,30 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         )
         .route("/api/external/clients", get(handlers::external::get_external_clients))
         .route("/api/external/summary", get(handlers::external::get_external_summary))
+        // Topology (CelestialGlobe)
+        .route("/api/topology", get(handlers::get_topology))
+        // araneaSDK
+        .route("/api/aranea/register", post(handlers::aranea_register_device))
+        .route("/api/aranea/devices", get(handlers::aranea_list_devices))
+        .route(
+            "/api/aranea/devices/:lacis_id/state",
+            get(handlers::aranea_get_device_state),
+        )
+        .route("/api/aranea/summary", get(handlers::aranea_summary))
+        // Tools: sync triggers + network diagnostics
+        .route("/api/tools/sync/omada", post(handlers::tool_sync_omada))
+        .route("/api/tools/sync/openwrt", post(handlers::tool_sync_openwrt))
+        .route("/api/tools/sync/external", post(handlers::tool_sync_external))
+        .route("/api/tools/ddns/update-all", post(handlers::tool_ddns_update_all))
+        .route("/api/tools/network/ping", post(handlers::tool_network_ping))
+        .route("/api/tools/network/dns", post(handlers::tool_network_dns))
+        // Operation logs
+        .route("/api/logs/operations", get(handlers::list_operation_logs))
+        .route("/api/logs/operations/summary", get(handlers::get_operation_logs_summary))
+        // LacisID
+        .route("/api/lacis-id/candidates", get(handlers::lacis_id_candidates))
+        .route("/api/lacis-id/compute", post(handlers::lacis_id_compute))
+        .route("/api/lacis-id/assign/:device_id", post(handlers::lacis_id_assign))
         // Nginx management
         .route("/api/nginx/status", get(handlers::get_nginx_status))
         .route("/api/nginx/config", get(handlers::get_nginx_config))

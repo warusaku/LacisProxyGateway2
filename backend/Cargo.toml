@@ -53,6 +53,9 @@ regex = "1.12.3"
 # GeoIP lookup
 maxminddb = "0.27"
 
+# IP subnet matching
+ipnetwork = "0.20"
+
 # Authentication
 jsonwebtoken = "9"
 bcrypt = "0.15"

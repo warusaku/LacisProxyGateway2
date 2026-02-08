@@ -8,8 +8,10 @@ import { Card } from '@/components/ui/Card';
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
+import { Modal } from '@/components/ui/Modal';
 import { LogDetailModal } from '@/components/LogDetailModal';
-import { dashboardApi } from '@/lib/api';
+import { dashboardApi, operationLogsApi, toolsApi } from '@/lib/api';
+import type { OperationLog, OperationLogSummary } from '@/lib/api';
 import { getStatusColor } from '@/lib/format';
 import { countryCodeToFlag } from '@/lib/geo';
 import type { AccessLog, AccessLogSearchParams, ErrorSummary, IpExclusionParams } from '@/types';
@@ -39,9 +41,21 @@ export default function LogsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'search' | 'errors'>('search');
+  const [activeTab, setActiveTab] = useState<'search' | 'errors' | 'operations'>('search');
   const [errorSummary, setErrorSummary] = useState<ErrorSummary[]>([]);
   const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null);
+
+  // Operations tab state
+  const [opLogs, setOpLogs] = useState<OperationLog[]>([]);
+  const [opSummary, setOpSummary] = useState<OperationLogSummary | null>(null);
+  const [opLoading, setOpLoading] = useState(false);
+  const [opTypeFilter, setOpTypeFilter] = useState('');
+  const [opStatusFilter, setOpStatusFilter] = useState('');
+  const [syncRunning, setSyncRunning] = useState<Record<string, boolean>>({});
+  const [toolHost, setToolHost] = useState('');
+  const [toolResult, setToolResult] = useState<Record<string, unknown> | null>(null);
+  const [toolRunning, setToolRunning] = useState(false);
+  const [opDetailLog, setOpDetailLog] = useState<OperationLog | null>(null);
 
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
@@ -163,6 +177,61 @@ export default function LogsPage() {
     }
   }, [fromDate, toDate, buildExclusionParams]);
 
+  // Operations tab data loader
+  const loadOperationLogs = useCallback(async () => {
+    setOpLoading(true);
+    try {
+      const [logs, summary] = await Promise.all([
+        operationLogsApi.list({
+          operation_type: opTypeFilter || undefined,
+          status: opStatusFilter || undefined,
+          limit: 50,
+        }),
+        operationLogsApi.getSummary(),
+      ]);
+      setOpLogs(logs);
+      setOpSummary(summary);
+    } catch (err) {
+      console.error('Failed to load operation logs:', err);
+    } finally {
+      setOpLoading(false);
+    }
+  }, [opTypeFilter, opStatusFilter]);
+
+  const handleSyncTrigger = async (type: 'omada' | 'openwrt' | 'external' | 'ddns') => {
+    setSyncRunning(prev => ({ ...prev, [type]: true }));
+    try {
+      const fn = {
+        omada: toolsApi.syncOmada,
+        openwrt: toolsApi.syncOpenwrt,
+        external: toolsApi.syncExternal,
+        ddns: toolsApi.ddnsUpdateAll,
+      }[type];
+      await fn();
+      loadOperationLogs();
+    } catch (err) {
+      console.error(`Sync ${type} failed:`, err);
+    } finally {
+      setSyncRunning(prev => ({ ...prev, [type]: false }));
+    }
+  };
+
+  const handleNetworkTool = async (tool: 'ping' | 'dns') => {
+    if (!toolHost.trim()) return;
+    setToolRunning(true);
+    setToolResult(null);
+    try {
+      const fn = tool === 'ping' ? toolsApi.ping : toolsApi.dns;
+      const result = await fn(toolHost.trim());
+      setToolResult(result as unknown as Record<string, unknown>);
+      loadOperationLogs();
+    } catch (err) {
+      setToolResult({ error: err instanceof Error ? err.message : 'Failed' });
+    } finally {
+      setToolRunning(false);
+    }
+  };
+
   useEffect(() => {
     if (!ipReady) return; // IP取得完了まで待つ（race condition防止）
     loadLogs();
@@ -172,7 +241,10 @@ export default function LogsPage() {
     if (activeTab === 'errors') {
       loadErrorSummary();
     }
-  }, [activeTab, loadErrorSummary]);
+    if (activeTab === 'operations') {
+      loadOperationLogs();
+    }
+  }, [activeTab, loadErrorSummary, loadOperationLogs]);
 
   const handleSearch = () => {
     setPage(1);
@@ -379,6 +451,12 @@ export default function LogsPage() {
         >
           Error Analysis
         </button>
+        <button
+          className={`pb-2 px-1 ${activeTab === 'operations' ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-400'}`}
+          onClick={() => setActiveTab('operations')}
+        >
+          Operations{opSummary ? ` (${opSummary.recent_24h})` : ''}
+        </button>
       </div>
 
       {/* Content */}
@@ -404,7 +482,7 @@ export default function LogsPage() {
             </>
           )}
         </div>
-      ) : (
+      ) : activeTab === 'errors' ? (
         <div className="space-y-4">
           {errorSummary.length > 0 ? (
             errorSummary.map((es) => (
@@ -433,7 +511,251 @@ export default function LogsPage() {
             <div className="text-center text-gray-500 py-8">No errors in the selected period</div>
           )}
         </div>
+      ) : (
+        /* Operations Tab */
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          {opSummary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <div className="p-4 text-center">
+                  <div className="text-sm text-gray-400">Total</div>
+                  <div className="text-2xl font-bold">{opSummary.total}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4 text-center">
+                  <div className="text-sm text-gray-400">Last 24h</div>
+                  <div className="text-2xl font-bold">{opSummary.recent_24h}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4 text-center">
+                  <div className="text-sm text-gray-400">Success (24h)</div>
+                  <div className="text-2xl font-bold text-green-400">{opSummary.recent_success}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4 text-center">
+                  <div className="text-sm text-gray-400">Errors (24h)</div>
+                  <div className="text-2xl font-bold text-red-400">{opSummary.recent_errors}</div>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* Sync Triggers */}
+          <Card>
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-gray-400 mb-3">Manual Sync Triggers</h3>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => handleSyncTrigger('omada')}
+                  disabled={syncRunning.omada}
+                  variant="secondary"
+                >
+                  {syncRunning.omada ? 'Syncing...' : 'Sync Omada'}
+                </Button>
+                <Button
+                  onClick={() => handleSyncTrigger('openwrt')}
+                  disabled={syncRunning.openwrt}
+                  variant="secondary"
+                >
+                  {syncRunning.openwrt ? 'Syncing...' : 'Sync OpenWrt'}
+                </Button>
+                <Button
+                  onClick={() => handleSyncTrigger('external')}
+                  disabled={syncRunning.external}
+                  variant="secondary"
+                >
+                  {syncRunning.external ? 'Syncing...' : 'Sync External'}
+                </Button>
+                <Button
+                  onClick={() => handleSyncTrigger('ddns')}
+                  disabled={syncRunning.ddns}
+                  variant="secondary"
+                >
+                  {syncRunning.ddns ? 'Updating...' : 'Update All DDNS'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Network Diagnostics */}
+          <Card>
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-gray-400 mb-3">Network Diagnostics</h3>
+              <div className="flex items-end gap-3 mb-3">
+                <Input
+                  label="Hostname / IP"
+                  placeholder="example.com or 8.8.8.8"
+                  value={toolHost}
+                  onChange={(e) => setToolHost(e.target.value)}
+                />
+                <Button onClick={() => handleNetworkTool('ping')} disabled={toolRunning || !toolHost.trim()}>
+                  {toolRunning ? 'Running...' : 'Ping'}
+                </Button>
+                <Button onClick={() => handleNetworkTool('dns')} disabled={toolRunning || !toolHost.trim()} variant="secondary">
+                  {toolRunning ? 'Running...' : 'DNS Lookup'}
+                </Button>
+              </div>
+              {toolResult && (
+                <pre className="text-xs bg-gray-900 p-3 rounded overflow-auto max-h-64">
+                  {JSON.stringify(toolResult, null, 2)}
+                </pre>
+              )}
+            </div>
+          </Card>
+
+          {/* Operation Logs Filter */}
+          <div className="flex gap-3 items-end">
+            <Select
+              label="Type"
+              options={[
+                { value: '', label: 'All Types' },
+                { value: 'sync_omada', label: 'Sync Omada' },
+                { value: 'sync_openwrt', label: 'Sync OpenWrt' },
+                { value: 'sync_external', label: 'Sync External' },
+                { value: 'ddns_update', label: 'DDNS Update' },
+                { value: 'ddns_update_all', label: 'DDNS Update All' },
+                { value: 'ping', label: 'Ping' },
+                { value: 'dns', label: 'DNS' },
+              ]}
+              value={opTypeFilter}
+              onChange={(e) => setOpTypeFilter(e.target.value)}
+            />
+            <Select
+              label="Status"
+              options={[
+                { value: '', label: 'All Status' },
+                { value: 'success', label: 'Success' },
+                { value: 'error', label: 'Error' },
+                { value: 'running', label: 'Running' },
+              ]}
+              value={opStatusFilter}
+              onChange={(e) => setOpStatusFilter(e.target.value)}
+            />
+            <Button variant="secondary" onClick={loadOperationLogs}>Refresh</Button>
+          </div>
+
+          {/* Operation Logs Table */}
+          <div className="bg-card border border-border rounded-lg">
+            {opLoading ? (
+              <div className="flex items-center justify-center h-32 text-gray-500">Loading...</div>
+            ) : (
+              <Table
+                columns={[
+                  {
+                    key: 'created_at',
+                    header: 'Time',
+                    render: (op: OperationLog) => (
+                      <span className="text-sm text-gray-400 whitespace-nowrap">
+                        {new Date(op.created_at).toLocaleString()}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'operation_type',
+                    header: 'Type',
+                    render: (op: OperationLog) => (
+                      <code className="text-sm">{op.operation_type}</code>
+                    ),
+                  },
+                  {
+                    key: 'initiated_by',
+                    header: 'Initiated By',
+                    render: (op: OperationLog) => (
+                      <Badge variant={op.initiated_by === 'manual' ? 'info' : 'default'}>
+                        {op.initiated_by}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'target',
+                    header: 'Target',
+                    render: (op: OperationLog) => (
+                      <span className="text-sm">{op.target || '-'}</span>
+                    ),
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (op: OperationLog) => (
+                      <Badge variant={op.status === 'success' ? 'success' : op.status === 'error' ? 'error' : 'warning'}>
+                        {op.status}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'duration_ms',
+                    header: 'Duration',
+                    render: (op: OperationLog) => (
+                      <span className="text-sm text-gray-400">
+                        {op.duration_ms !== undefined ? `${op.duration_ms}ms` : '-'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Detail',
+                    render: (op: OperationLog) => (
+                      <Button size="sm" variant="ghost" onClick={() => setOpDetailLog(op)}>
+                        View
+                      </Button>
+                    ),
+                  },
+                ]}
+                data={opLogs}
+                keyExtractor={(op) => op.operation_id}
+                emptyMessage="No operation logs"
+              />
+            )}
+          </div>
+        </div>
       )}
+
+      {/* Operation Detail Modal */}
+      <Modal isOpen={!!opDetailLog} onClose={() => setOpDetailLog(null)} title={`Operation: ${opDetailLog?.operation_type || ''}`}>
+        {opDetailLog && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="text-gray-400">ID</div>
+              <div><code className="text-xs">{opDetailLog.operation_id}</code></div>
+              <div className="text-gray-400">Type</div>
+              <div>{opDetailLog.operation_type}</div>
+              <div className="text-gray-400">Initiated By</div>
+              <div>{opDetailLog.initiated_by}</div>
+              <div className="text-gray-400">Target</div>
+              <div>{opDetailLog.target || '-'}</div>
+              <div className="text-gray-400">Status</div>
+              <div>
+                <Badge variant={opDetailLog.status === 'success' ? 'success' : opDetailLog.status === 'error' ? 'error' : 'warning'}>
+                  {opDetailLog.status}
+                </Badge>
+              </div>
+              <div className="text-gray-400">Duration</div>
+              <div>{opDetailLog.duration_ms !== undefined ? `${opDetailLog.duration_ms}ms` : '-'}</div>
+              <div className="text-gray-400">Created</div>
+              <div>{new Date(opDetailLog.created_at).toLocaleString()}</div>
+            </div>
+            {opDetailLog.error && (
+              <div>
+                <div className="text-sm text-red-400 mb-1">Error:</div>
+                <pre className="text-xs bg-red-900/30 p-2 rounded">{opDetailLog.error}</pre>
+              </div>
+            )}
+            {opDetailLog.result && (
+              <div>
+                <div className="text-sm text-gray-400 mb-1">Result:</div>
+                <pre className="text-xs bg-gray-900 p-3 rounded overflow-auto max-h-64">
+                  {JSON.stringify(opDetailLog.result, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
       <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
     </div>
   );

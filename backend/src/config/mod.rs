@@ -9,6 +9,8 @@ pub struct Config {
     pub discord: Option<DiscordConfig>,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub aranea: AraneaConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +118,43 @@ fn default_port() -> u16 {
     8081
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AraneaConfig {
+    #[serde(default)]
+    pub tid: String,
+    #[serde(default)]
+    pub tenant_lacis_id: String,
+    #[serde(default)]
+    pub tenant_user_id: String,
+    #[serde(default)]
+    pub tenant_cic: String,
+    #[serde(default = "default_aranea_device_gate_url")]
+    pub device_gate_url: String,
+    #[serde(default = "default_aranea_device_state_url")]
+    pub device_state_url: String,
+}
+
+impl Default for AraneaConfig {
+    fn default() -> Self {
+        Self {
+            tid: String::new(),
+            tenant_lacis_id: String::new(),
+            tenant_user_id: String::new(),
+            tenant_cic: String::new(),
+            device_gate_url: default_aranea_device_gate_url(),
+            device_state_url: default_aranea_device_state_url(),
+        }
+    }
+}
+
+fn default_aranea_device_gate_url() -> String {
+    "https://us-central1-mobesorder.cloudfunctions.net/araneaDeviceGate".to_string()
+}
+
+fn default_aranea_device_state_url() -> String {
+    "https://asia-northeast1-mobesorder.cloudfunctions.net/deviceStateReport".to_string()
+}
+
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         let settings = config::Config::builder()
@@ -135,6 +174,7 @@ impl Config {
             },
             discord: None,
             auth: AuthConfig::default(),
+            aranea: AraneaConfig::default(),
         });
 
         Ok(config)
