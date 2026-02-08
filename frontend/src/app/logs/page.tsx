@@ -11,7 +11,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Modal } from '@/components/ui/Modal';
 import { LogDetailModal } from '@/components/LogDetailModal';
 import { dashboardApi, operationLogsApi, toolsApi } from '@/lib/api';
-import type { OperationLog, OperationLogSummary } from '@/lib/api';
+import type { OperationLog, OperationLogSummary, DiagnosticCheck, DiagnosticsResponse } from '@/lib/api';
 import { getStatusColor } from '@/lib/format';
 import { countryCodeToFlag } from '@/lib/geo';
 import type { AccessLog, AccessLogSearchParams, ErrorSummary, IpExclusionParams } from '@/types';
@@ -56,6 +56,11 @@ export default function LogsPage() {
   const [toolResult, setToolResult] = useState<Record<string, unknown> | null>(null);
   const [toolRunning, setToolRunning] = useState(false);
   const [opDetailLog, setOpDetailLog] = useState<OperationLog | null>(null);
+
+  // Diagnostics state
+  const [diagResult, setDiagResult] = useState<DiagnosticsResponse | null>(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagIncludeDeviceTests, setDiagIncludeDeviceTests] = useState(false);
 
   // IP exclusion filter state
   const [myIp, setMyIp] = useState<string>('');
@@ -229,6 +234,22 @@ export default function LogsPage() {
       setToolResult({ error: err instanceof Error ? err.message : 'Failed' });
     } finally {
       setToolRunning(false);
+    }
+  };
+
+  const handleRunDiagnostics = async () => {
+    setDiagRunning(true);
+    setDiagResult(null);
+    try {
+      const result = await toolsApi.diagnostics({
+        include_device_tests: diagIncludeDeviceTests,
+      });
+      setDiagResult(result);
+      loadOperationLogs();
+    } catch (err) {
+      console.error('Diagnostics failed:', err);
+    } finally {
+      setDiagRunning(false);
     }
   };
 
@@ -581,6 +602,88 @@ export default function LogsPage() {
             </div>
           </Card>
 
+          {/* System Diagnostics */}
+          <Card>
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-gray-400 mb-3">System Diagnostics</h3>
+              <div className="flex items-center gap-4 mb-4">
+                <Button onClick={handleRunDiagnostics} disabled={diagRunning}>
+                  {diagRunning ? 'Running Diagnostics...' : 'Run All Diagnostics'}
+                </Button>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={diagIncludeDeviceTests}
+                    onChange={(e) => setDiagIncludeDeviceTests(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                  />
+                  <span className="text-sm text-gray-400">Include device connectivity tests</span>
+                </label>
+              </div>
+              {diagResult && (
+                <div className="space-y-4">
+                  {/* Summary */}
+                  <div className="flex gap-4 text-sm">
+                    <span className="font-bold">{diagResult.summary.total} checks</span>
+                    <span className="text-green-400">{diagResult.summary.ok} OK</span>
+                    {diagResult.summary.warning > 0 && (
+                      <span className="text-yellow-400">{diagResult.summary.warning} Warning</span>
+                    )}
+                    {diagResult.summary.error > 0 && (
+                      <span className="text-red-400">{diagResult.summary.error} Error</span>
+                    )}
+                    <span className="text-gray-500">({diagResult.duration_ms}ms)</span>
+                  </div>
+                  {/* Checks Table */}
+                  <Table
+                    columns={[
+                      {
+                        key: 'category',
+                        header: 'Category',
+                        render: (c: DiagnosticCheck) => (
+                          <code className="text-sm">{c.category}</code>
+                        ),
+                      },
+                      {
+                        key: 'name',
+                        header: 'Check',
+                        render: (c: DiagnosticCheck) => (
+                          <span className="text-sm">{c.name}</span>
+                        ),
+                      },
+                      {
+                        key: 'status',
+                        header: 'Status',
+                        render: (c: DiagnosticCheck) => (
+                          <Badge variant={c.status === 'ok' ? 'success' : c.status === 'warning' ? 'warning' : 'error'}>
+                            {c.status}
+                          </Badge>
+                        ),
+                      },
+                      {
+                        key: 'message',
+                        header: 'Message',
+                        render: (c: DiagnosticCheck) => (
+                          <span className="text-sm">{c.message}</span>
+                        ),
+                      },
+                      {
+                        key: 'duration_ms',
+                        header: 'Duration',
+                        render: (c: DiagnosticCheck) => (
+                          <span className="text-sm text-gray-400">{c.duration_ms}ms</span>
+                        ),
+                      },
+                    ]}
+                    data={diagResult.checks}
+                    keyExtractor={(c) => `${c.category}-${c.name}`}
+                    emptyMessage="No checks"
+                  />
+                </div>
+              )}
+            </div>
+          </Card>
+
           {/* Network Diagnostics */}
           <Card>
             <div className="p-4">
@@ -620,6 +723,7 @@ export default function LogsPage() {
                 { value: 'ddns_update_all', label: 'DDNS Update All' },
                 { value: 'ping', label: 'Ping' },
                 { value: 'dns', label: 'DNS' },
+                { value: 'diagnostics', label: 'Diagnostics' },
               ]}
               value={opTypeFilter}
               onChange={(e) => setOpTypeFilter(e.target.value)}

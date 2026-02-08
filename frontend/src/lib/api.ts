@@ -1073,6 +1073,36 @@ export interface ToolResult {
   error?: string;
 }
 
+// --- Diagnostics types ---
+
+export interface DiagnosticCheck {
+  category: string;
+  name: string;
+  status: 'ok' | 'warning' | 'error';
+  message: string;
+  details?: Record<string, unknown>;
+  duration_ms: number;
+}
+
+export interface DiagnosticSummary {
+  total: number;
+  ok: number;
+  warning: number;
+  error: number;
+}
+
+export interface DiagnosticsResponse {
+  checks: DiagnosticCheck[];
+  summary: DiagnosticSummary;
+  operation_id: string;
+  duration_ms: number;
+}
+
+export interface DiagnosticsRequest {
+  categories?: string[];
+  include_device_tests?: boolean;
+}
+
 export const toolsApi = {
   syncOmada: () => request<ToolResult>('/tools/sync/omada', { method: 'POST' }),
   syncOpenwrt: () => request<ToolResult>('/tools/sync/openwrt', { method: 'POST' }),
@@ -1082,6 +1112,12 @@ export const toolsApi = {
   dns: (hostname: string) => request<ToolResult>('/tools/network/dns', { method: 'POST', body: JSON.stringify({ hostname }) }),
   curl: (url: string) => request<ToolResult>('/tools/network/curl', { method: 'POST', body: JSON.stringify({ url }) }),
   omadaApiRef: () => request<{ methods: { name: string; endpoint: string; method: string; description: string }[] }>('/tools/omada/api-ref'),
+
+  diagnostics: (params?: DiagnosticsRequest) =>
+    request<DiagnosticsResponse>('/tools/diagnostics', {
+      method: 'POST',
+      body: JSON.stringify(params ?? {}),
+    }),
 };
 
 // ============================================================================

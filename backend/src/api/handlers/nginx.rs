@@ -235,7 +235,7 @@ pub async fn get_nginx_config(
 // Helper functions
 // ============================================================================
 
-async fn check_nginx_running() -> bool {
+pub(crate) async fn check_nginx_running() -> bool {
     Command::new("systemctl")
         .args(["is-active", "--quiet", "nginx"])
         .status()
@@ -243,7 +243,7 @@ async fn check_nginx_running() -> bool {
         .unwrap_or(false)
 }
 
-async fn test_nginx_config() -> (bool, Option<String>) {
+pub(crate) async fn test_nginx_config() -> (bool, Option<String>) {
     match Command::new("sudo")
         .args(["nginx", "-t"])
         .output()

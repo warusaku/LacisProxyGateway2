@@ -249,6 +249,7 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/tools/ddns/update-all", post(handlers::tool_ddns_update_all))
         .route("/api/tools/network/ping", post(handlers::tool_network_ping))
         .route("/api/tools/network/dns", post(handlers::tool_network_dns))
+        .route("/api/tools/diagnostics", post(handlers::run_diagnostics))
         // Operation logs
         .route("/api/logs/operations", get(handlers::list_operation_logs))
         .route("/api/logs/operations/summary", get(handlers::get_operation_logs_summary))
