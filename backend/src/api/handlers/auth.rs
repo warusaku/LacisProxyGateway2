@@ -1,9 +1,10 @@
 //! Authentication handlers
 //!
-//! - POST /api/auth/login/local    - Local email+password login
-//! - POST /api/auth/login/lacisoath - LacisOath JWT token login
-//! - GET  /api/auth/me              - Get current authenticated user
-//! - POST /api/auth/logout           - Clear session cookie
+//! - POST /api/auth/login/local     - Local email+password login
+//! - POST /api/auth/login/lacisoath - OAuth 2.0 Authorization Code login (mobes 2.0)
+//! - GET  /api/auth/lacisoath-config - OAuth 2.0 client config (public, no secrets)
+//! - GET  /api/auth/me               - Get current authenticated user
+//! - POST /api/auth/logout            - Clear session cookie
 
 use axum::{
     extract::State,
@@ -11,7 +12,6 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use base64::Engine;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::Deserialize;
 
@@ -74,45 +74,74 @@ pub async fn login_local(
 }
 
 /// POST /api/auth/login/lacisoath
-/// Authenticate with LacisOath JWT token (payload decode only, no RS256 verification)
+/// OAuth 2.0 Authorization Code Flow: exchange code for token via mobes externalAuthToken
 pub async fn login_lacisoath(
     State(state): State<ProxyState>,
     Json(req): Json<LacisOathLoginRequest>,
 ) -> Result<Response, AppError> {
     let auth = &state.auth_config;
 
-    // Decode JWT payload (base64) without signature verification
-    let payload = decode_jwt_payload(&req.token)?;
-
-    // Check expiration
-    if let Some(exp) = payload.exp {
-        let now = chrono::Utc::now().timestamp() as u64;
-        if exp < now {
-            return Err(AppError::BadRequest("Token has expired".to_string()));
-        }
+    // Verify OAuth 2.0 client is configured
+    if auth.lacisoath_client_id.is_empty() || auth.lacisoath_client_secret.is_empty() {
+        return Err(AppError::InternalError(
+            "LacisOath is not configured".to_string(),
+        ));
     }
 
-    // Check permission
-    let permission = payload.permission.unwrap_or(0);
-    if permission < auth.lacisoath_required_permission {
+    // Step 1: Exchange authorization code for token
+    let client = reqwest::Client::new();
+    let token_resp = client
+        .post(&auth.lacisoath_token_url)
+        .json(&serde_json::json!({
+            "grant_type": "authorization_code",
+            "code": req.code,
+            "client_id": auth.lacisoath_client_id,
+            "client_secret": auth.lacisoath_client_secret,
+            "redirect_uri": req.redirect_uri,
+        }))
+        .send()
+        .await
+        .map_err(|e| AppError::InternalError(format!("Token exchange failed: {}", e)))?;
+
+    if !token_resp.status().is_success() {
+        let body = token_resp.text().await.unwrap_or_default();
+        tracing::warn!("LacisOath token exchange failed: {}", body);
+        return Err(AppError::BadRequest(format!(
+            "Authentication failed: {}",
+            body
+        )));
+    }
+
+    // Step 2: Parse token response
+    let token_data: LacisOathTokenResponse = token_resp
+        .json()
+        .await
+        .map_err(|e| AppError::InternalError(format!("Invalid token response: {}", e)))?;
+
+    let user_info = &token_data.data.user_info;
+
+    // Step 3: Permission check
+    if user_info.permission < auth.lacisoath_required_permission {
         tracing::warn!(
             "LacisOath login denied: permission {} < required {}",
-            permission,
+            user_info.permission,
             auth.lacisoath_required_permission
         );
         return Err(AppError::BadRequest(format!(
             "Insufficient permission: {} (required: {})",
-            permission, auth.lacisoath_required_permission
+            user_info.permission, auth.lacisoath_required_permission
         )));
     }
 
-    // Check fid
-    let fids = payload.fid.unwrap_or_default();
-    let has_required_fid = fids.iter().any(|f| f == &auth.lacisoath_required_fid || f == "0000");
-    if !has_required_fid {
+    // Step 4: FID check
+    let has_fid = user_info
+        .fid
+        .iter()
+        .any(|f| f == &auth.lacisoath_required_fid || f == "0000");
+    if !has_fid {
         tracing::warn!(
             "LacisOath login denied: fid {:?} does not contain {} or 0000",
-            fids,
+            user_info.fid,
             auth.lacisoath_required_fid
         );
         return Err(AppError::BadRequest(
@@ -120,12 +149,11 @@ pub async fn login_lacisoath(
         ));
     }
 
-    let lacis_id = payload.lacis_id.unwrap_or_default();
-
+    // Step 5: Create session
     let user = AuthUser {
-        sub: lacis_id.clone(),
-        lacis_id: Some(lacis_id),
-        permission,
+        sub: user_info.lacis_id.clone(),
+        lacis_id: Some(user_info.lacis_id.clone()),
+        permission: user_info.permission,
         auth_method: "lacisoath".to_string(),
     };
 
@@ -136,6 +164,21 @@ pub async fn login_lacisoath(
     };
 
     Ok((StatusCode::OK, [(SET_COOKIE, cookie)], Json(body)).into_response())
+}
+
+/// GET /api/auth/lacisoath-config
+/// Returns OAuth 2.0 client config for frontend (no secrets exposed)
+pub async fn lacisoath_config(State(state): State<ProxyState>) -> impl IntoResponse {
+    let auth = &state.auth_config;
+    let enabled =
+        !auth.lacisoath_client_id.is_empty() && !auth.lacisoath_client_secret.is_empty();
+
+    Json(serde_json::json!({
+        "enabled": enabled,
+        "client_id": if enabled { &auth.lacisoath_client_id } else { "" },
+        "auth_url": &auth.lacisoath_auth_url,
+        "redirect_uri": &auth.lacisoath_redirect_uri,
+    }))
 }
 
 /// GET /api/auth/me
@@ -151,7 +194,12 @@ pub async fn auth_me(Extension(user): Extension<AuthUser>) -> impl IntoResponse 
 /// Clear the session cookie
 pub async fn auth_logout() -> impl IntoResponse {
     let cookie = "lpg_session=; Path=/LacisProxyGateway2; HttpOnly; SameSite=Lax; Max-Age=0";
-    (StatusCode::OK, [(SET_COOKIE, cookie.to_string())], Json(serde_json::json!({"ok": true}))).into_response()
+    (
+        StatusCode::OK,
+        [(SET_COOKIE, cookie.to_string())],
+        Json(serde_json::json!({"ok": true})),
+    )
+        .into_response()
 }
 
 // ============================================================================
@@ -191,30 +239,31 @@ fn create_session_cookie(
     ))
 }
 
-/// Decoded LacisOath JWT payload (partial - only fields we need)
+// ============================================================================
+// OAuth 2.0 Token Exchange Response Types
+// ============================================================================
+
+/// Response from mobes externalAuthToken endpoint
 #[derive(Debug, Deserialize)]
-struct LacisOathPayload {
-    lacis_id: Option<String>,
-    permission: Option<i32>,
-    fid: Option<Vec<String>>,
-    exp: Option<u64>,
+struct LacisOathTokenResponse {
+    #[allow(dead_code)]
+    status: String,
+    data: LacisOathTokenData,
 }
 
-/// Decode JWT payload (base64 middle segment) without signature verification
-fn decode_jwt_payload(token: &str) -> Result<LacisOathPayload, AppError> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err(AppError::BadRequest("Invalid JWT format".to_string()));
-    }
+#[derive(Debug, Deserialize)]
+struct LacisOathTokenData {
+    #[serde(rename = "accessToken")]
+    #[allow(dead_code)]
+    access_token: String,
+    #[serde(rename = "userInfo")]
+    user_info: LacisOathUserInfo,
+}
 
-    let payload_b64 = parts[1];
-    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload_b64)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(payload_b64))
-        .map_err(|e| AppError::BadRequest(format!("Invalid JWT payload encoding: {}", e)))?;
-
-    let payload: LacisOathPayload = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| AppError::BadRequest(format!("Invalid JWT payload JSON: {}", e)))?;
-
-    Ok(payload)
+#[derive(Debug, Deserialize)]
+struct LacisOathUserInfo {
+    #[serde(rename = "lacisId")]
+    lacis_id: String,
+    permission: i32,
+    fid: Vec<String>,
 }

@@ -48,6 +48,17 @@ pub struct AuthConfig {
     pub lacisoath_required_fid: String,
     #[serde(default)]
     pub internet_access_enabled: bool,
+    // OAuth 2.0 (mobes 2.0 external auth)
+    #[serde(default)]
+    pub lacisoath_client_id: String,
+    #[serde(default)]
+    pub lacisoath_client_secret: String,
+    #[serde(default = "default_lacisoath_auth_url")]
+    pub lacisoath_auth_url: String,
+    #[serde(default = "default_lacisoath_token_url")]
+    pub lacisoath_token_url: String,
+    #[serde(default)]
+    pub lacisoath_redirect_uri: String,
 }
 
 impl Default for AuthConfig {
@@ -60,6 +71,11 @@ impl Default for AuthConfig {
             lacisoath_required_permission: default_required_permission(),
             lacisoath_required_fid: default_required_fid(),
             internet_access_enabled: false,
+            lacisoath_client_id: String::new(),
+            lacisoath_client_secret: String::new(),
+            lacisoath_auth_url: default_lacisoath_auth_url(),
+            lacisoath_token_url: default_lacisoath_token_url(),
+            lacisoath_redirect_uri: String::new(),
         }
     }
 }
@@ -82,6 +98,14 @@ fn default_required_permission() -> i32 {
 
 fn default_required_fid() -> String {
     "9966".to_string()
+}
+
+fn default_lacisoath_auth_url() -> String {
+    "https://mobesorder.web.app/lacis-auth/login".to_string()
+}
+
+fn default_lacisoath_token_url() -> String {
+    "https://asia-northeast1-mobesorder.cloudfunctions.net/externalAuthToken".to_string()
 }
 
 fn default_host() -> String {

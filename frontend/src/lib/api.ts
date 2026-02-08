@@ -24,6 +24,7 @@ import type {
   SecurityEventSearchParams,
   IpExclusionParams,
   AuthResponse,
+  LacisOathConfig,
 } from '@/types';
 
 const API_BASE = '/LacisProxyGateway2/api';
@@ -511,16 +512,18 @@ export interface NginxTemplateSettings {
 // ============================================================================
 
 export const authApi = {
+  getLacisOathConfig: () => request<LacisOathConfig>('/auth/lacisoath-config'),
+
   loginLocal: (email: string, password: string) =>
     request<AuthResponse>('/auth/login/local', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
 
-  loginLacisOath: (token: string) =>
+  loginLacisOath: (code: string, redirectUri: string) =>
     request<AuthResponse>('/auth/login/lacisoath', {
       method: 'POST',
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
     }),
 
   me: () => request<AuthResponse>('/auth/me'),

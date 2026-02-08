@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { authApi } from '@/lib/api';
+import type { LacisOathConfig } from '@/types';
 
 function LoginContent() {
   const { user, loading, login, loginLacisOath } = useAuth();
@@ -13,49 +15,62 @@ function LoginContent() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showLocalLogin, setShowLocalLogin] = useState(false);
+  const [oauthConfig, setOauthConfig] = useState<LacisOathConfig | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(true);
 
-  // Handle LacisOath callback
+  // Fetch OAuth 2.0 config on mount
   useEffect(() => {
+    authApi
+      .getLacisOathConfig()
+      .then((config) => {
+        setOauthConfig(config);
+      })
+      .catch(() => {
+        setOauthConfig(null);
+      })
+      .finally(() => {
+        setOauthLoading(false);
+      });
+  }, []);
+
+  // Handle OAuth 2.0 callback: ?callback=1&code=...&state=...
+  const handleOAuthCallback = useCallback(async () => {
     const callback = searchParams.get('callback');
-    const token = searchParams.get('lacisOathToken');
+    const code = searchParams.get('code');
+    const state = searchParams.get('state');
 
-    if (callback === '1' && token) {
-      setSubmitting(true);
-      setError('');
+    if (callback !== '1' || !code) return;
 
-      // Decode JWT payload to pre-check permission/fid (client-side validation)
-      try {
-        const payloadB64 = token.split('.')[1];
-        const payload = JSON.parse(atob(payloadB64));
-        const permission = payload.permission || 0;
-        const fids: string[] = payload.fid || [];
+    // Verify state (CSRF protection)
+    const savedState = sessionStorage.getItem('lpg_oauth_state');
+    if (!state || state !== savedState) {
+      setError('Invalid state parameter. Possible CSRF attack.');
+      return;
+    }
+    sessionStorage.removeItem('lpg_oauth_state');
 
-        if (permission < 80) {
-          setError(`Insufficient permission: ${permission} (required: >= 80)`);
-          setSubmitting(false);
-          return;
-        }
+    // Recover redirect_uri used for the authorization request
+    const redirectUri = sessionStorage.getItem('lpg_oauth_redirect_uri') || '';
+    sessionStorage.removeItem('lpg_oauth_redirect_uri');
 
-        if (!fids.includes('9966') && !fids.includes('0000')) {
-          setError('Access not authorized for this facility');
-          setSubmitting(false);
-          return;
-        }
+    setSubmitting(true);
+    setError('');
 
-        // Send to backend for session creation
-        loginLacisOath(token).catch((e) => {
-          setError(e.message || 'LacisOath login failed');
-          setSubmitting(false);
-        });
-      } catch {
-        setError('Invalid LacisOath token format');
-        setSubmitting(false);
-      }
+    try {
+      await loginLacisOath(code, redirectUri);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'LacisOath login failed';
+      setError(message);
+      setSubmitting(false);
     }
   }, [searchParams, loginLacisOath]);
 
+  useEffect(() => {
+    handleOAuthCallback();
+  }, [handleOAuthCallback]);
+
   // If already authenticated, redirect happens in AuthContext
-  if (loading) {
+  if (loading || oauthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-gray-400">Loading...</div>
@@ -86,9 +101,29 @@ function LoginContent() {
     }
   };
 
-  const lacisOathUrl = `https://lacisoath.web.app/login/?returnUrl=${encodeURIComponent(
-    window.location.origin + '/LacisProxyGateway2/login?callback=1'
-  )}`;
+  const handleLacisOathLogin = () => {
+    if (!oauthConfig || !oauthConfig.enabled) return;
+
+    // Generate random state for CSRF protection
+    const state = crypto.randomUUID();
+    sessionStorage.setItem('lpg_oauth_state', state);
+
+    // Build redirect_uri: current origin + basePath + /login?callback=1
+    const redirectUri =
+      oauthConfig.redirect_uri ||
+      `${window.location.origin}/LacisProxyGateway2/login?callback=1`;
+    sessionStorage.setItem('lpg_oauth_redirect_uri', redirectUri);
+
+    // Redirect to mobes authorization endpoint
+    const authUrl = new URL(oauthConfig.auth_url);
+    authUrl.searchParams.set('client_id', oauthConfig.client_id);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('state', state);
+
+    window.location.href = authUrl.toString();
+  };
+
+  const oauthEnabled = oauthConfig?.enabled === true;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -108,24 +143,28 @@ function LoginContent() {
             </div>
           )}
 
-          {/* LacisOath login (primary) */}
-          <a
-            href={lacisOathUrl}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors font-medium"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-              />
-            </svg>
-            Login with LacisOath
-          </a>
+          {/* LacisOath login (primary) - only shown when OAuth client is configured */}
+          {oauthEnabled && (
+            <button
+              type="button"
+              onClick={handleLacisOathLogin}
+              disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors font-medium disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
+              </svg>
+              Login with LacisOath
+            </button>
+          )}
 
-          {/* Local login (fallback) - collapsed by default */}
-          {!showLocalLogin ? (
+          {/* Local login (fallback) - collapsed by default when OAuth available */}
+          {oauthEnabled && !showLocalLogin ? (
             <button
               type="button"
               onClick={() => setShowLocalLogin(true)}
@@ -135,11 +174,13 @@ function LoginContent() {
             </button>
           ) : (
             <>
-              <div className="flex items-center mt-6 mb-4">
-                <div className="flex-1 border-t border-border" />
-                <span className="px-4 text-gray-500 text-xs">ローカルマスターアカウント</span>
-                <div className="flex-1 border-t border-border" />
-              </div>
+              {oauthEnabled && (
+                <div className="flex items-center mt-6 mb-4">
+                  <div className="flex-1 border-t border-border" />
+                  <span className="px-4 text-gray-500 text-xs">ローカルマスターアカウント</span>
+                  <div className="flex-1 border-t border-border" />
+                </div>
+              )}
               <form onSubmit={handleLocalLogin} className="space-y-3">
                 <div>
                   <input

@@ -479,7 +479,8 @@ pub struct LocalLoginRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct LacisOathLoginRequest {
-    pub token: String,
+    pub code: String,
+    pub redirect_uri: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

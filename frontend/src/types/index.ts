@@ -268,6 +268,13 @@ export interface LocalLoginRequest {
   password: string;
 }
 
+export interface LacisOathConfig {
+  enabled: boolean;
+  client_id: string;
+  auth_url: string;
+  redirect_uri: string;
+}
+
 // ============================================================================
 // API Response
 // ============================================================================

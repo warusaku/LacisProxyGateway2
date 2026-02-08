@@ -9,7 +9,7 @@ interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   login: (method: 'local', data: { email: string; password: string }) => Promise<void>;
-  loginLacisOath: (token: string) => Promise<void>;
+  loginLacisOath: (code: string, redirectUri: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -57,8 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const loginLacisOath = useCallback(
-    async (token: string) => {
-      const res = await authApi.loginLacisOath(token);
+    async (code: string, redirectUri: string) => {
+      const res = await authApi.loginLacisOath(code, redirectUri);
       setUser(res.user);
       router.push('/');
     },

@@ -30,6 +30,10 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/auth/login/lacisoath",
             post(handlers::auth::login_lacisoath),
         )
+        .route(
+            "/api/auth/lacisoath-config",
+            get(handlers::auth::lacisoath_config),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             admin_guard::internet_access_guard,
