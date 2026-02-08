@@ -34,7 +34,6 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = {
-  // matcher operates on paths AFTER basePath is stripped by Next.js
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-};
+// No config.matcher export: middleware runs on ALL requests.
+// Filtering is done inside the function to avoid basePath + matcher regex issues
+// where the generated regex fails to match the root URL without trailing slash.
