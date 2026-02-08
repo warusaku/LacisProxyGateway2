@@ -32,6 +32,17 @@ pub struct OperationLogDoc {
     pub error: Option<String>,
     pub duration_ms: Option<u64>,
     pub created_at: String,
+    /// Operator info for audit trail (populated when initiated via authenticated API)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operator: Option<OperatorInfo>,
+}
+
+/// Operator info attached to operation logs for audit trail
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorInfo {
+    pub sub: String,
+    pub auth_method: String,
+    pub permission: i32,
 }
 
 // ============================================================================
@@ -229,6 +240,18 @@ impl MongoDb {
         initiated_by: &str,
         target: Option<&str>,
     ) -> Result<String, String> {
+        self.start_operation_log_with_operator(operation_type, initiated_by, target, None)
+            .await
+    }
+
+    /// Create an operation log entry with operator info for audit trail
+    pub async fn start_operation_log_with_operator(
+        &self,
+        operation_type: &str,
+        initiated_by: &str,
+        target: Option<&str>,
+        operator: Option<OperatorInfo>,
+    ) -> Result<String, String> {
         let operation_id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -242,6 +265,7 @@ impl MongoDb {
             error: None,
             duration_ms: None,
             created_at: now,
+            operator,
         };
 
         self.insert_operation_log(&log).await?;

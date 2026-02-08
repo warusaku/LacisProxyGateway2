@@ -15,9 +15,11 @@ use axum::{
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
 use crate::models::{
-    AuthResponse, AuthUser, LacisOathLoginRequest, LocalLoginRequest, SessionClaims,
+    ApiKeyRequest, ApiKeyResponse, AuthResponse, AuthUser,
+    LacisOathLoginRequest, LocalLoginRequest, SessionClaims,
 };
 use crate::proxy::ProxyState;
 
@@ -200,6 +202,56 @@ pub async fn auth_logout() -> impl IntoResponse {
         Json(serde_json::json!({"ok": true})),
     )
         .into_response()
+}
+
+/// POST /api/auth/api-key
+/// Issue a long-lived API key (JWT) for AI agents / CLI usage.
+/// Requires permission == 100 (dangerous operation).
+pub async fn create_api_key(
+    State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<ApiKeyRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // Only permission 100 users can issue API keys
+    require_permission(&user, 100)?;
+
+    // Validate key name
+    if req.name.trim().is_empty() {
+        return Err(AppError::BadRequest("Key name is required".to_string()));
+    }
+
+    let expires_in_days = req.expires_in_days.unwrap_or(365);
+    let expires_at = chrono::Utc::now()
+        .checked_add_signed(chrono::Duration::days(expires_in_days as i64))
+        .ok_or_else(|| AppError::InternalError("Time overflow".to_string()))?;
+
+    let claims = SessionClaims {
+        sub: user.sub.clone(),
+        lacis_id: user.lacis_id.clone(),
+        permission: user.permission,
+        auth_method: "api_key".to_string(),
+        exp: expires_at.timestamp() as usize,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.auth_config.jwt_secret.as_bytes()),
+    )
+    .map_err(|e| AppError::InternalError(format!("JWT encode error: {}", e)))?;
+
+    tracing::info!(
+        "API key '{}' issued for {} (expires: {})",
+        req.name,
+        user.sub,
+        expires_at.to_rfc3339()
+    );
+
+    Ok(Json(ApiKeyResponse {
+        token,
+        expires_at: expires_at.to_rfc3339(),
+        name: req.name,
+    }))
 }
 
 // ============================================================================

@@ -47,6 +47,7 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Auth session endpoints
         .route("/api/auth/me", get(handlers::auth::auth_me))
         .route("/api/auth/logout", post(handlers::auth::auth_logout))
+        .route("/api/auth/api-key", post(handlers::auth::create_api_key))
         // Server routes (enhanced with subnet info)
         .route("/api/server-routes", get(handlers::list_server_routes))
         // Proxy routes management
@@ -253,6 +254,8 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Operation logs
         .route("/api/logs/operations", get(handlers::list_operation_logs))
         .route("/api/logs/operations/summary", get(handlers::get_operation_logs_summary))
+        // Agent context (AI/CLI)
+        .route("/api/agent/context", get(handlers::get_agent_context))
         // LacisID
         .route("/api/lacis-id/candidates", get(handlers::lacis_id_candidates))
         .route("/api/lacis-id/compute", post(handlers::lacis_id_compute))

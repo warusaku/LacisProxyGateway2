@@ -4,12 +4,13 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{BlockIpRequest, SecurityEventSearchQuery};
+use crate::models::{AuthUser, BlockIpRequest, ConfirmQuery, ConfirmRequired, SecurityEventSearchQuery};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -73,21 +74,40 @@ pub async fn block_ip(
     ))
 }
 
-/// DELETE /api/security/blocked-ips/:id - Unblock an IP
+/// DELETE /api/security/blocked-ips/:id - Unblock an IP (dangerous: permission == 100, confirm required)
 pub async fn unblock_ip(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
+    Query(confirm): Query<ConfirmQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
     // Get the IP before deleting for logging
     let blocked = state.app_state.mysql.get_blocked_ip(id).await?;
+
+    // Confirm guard
+    if !confirm.confirm {
+        let target_info = blocked
+            .as_ref()
+            .map(|b| format!("blocked IP #{} ({})", id, b.ip))
+            .unwrap_or_else(|| format!("blocked IP #{}", id));
+
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "unblock_ip".to_string(),
+            target: target_info,
+            warning: "This will unblock the IP address, allowing it to access the system again.".to_string(),
+            confirm_required: true,
+        })));
+    }
 
     let deleted = state.app_state.mysql.unblock_ip(id).await?;
 
     if deleted {
-        if let Some(b) = blocked {
+        if let Some(b) = &blocked {
             tracing::info!("Unblocked IP: {}", b.ip);
         }
-        Ok(Json(SuccessResponse::new("IP unblocked")))
+        Ok(Json(serde_json::json!(SuccessResponse::new("IP unblocked"))))
     } else {
         Err(AppError::NotFound(format!("Blocked IP {} not found", id)))
     }

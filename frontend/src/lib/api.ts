@@ -905,6 +905,19 @@ export interface NginxTemplateSettings {
 // Auth API
 // ============================================================================
 
+// --- API Key types ---
+
+export interface ApiKeyRequest {
+  name: string;
+  expires_in_days?: number;
+}
+
+export interface ApiKeyResponse {
+  token: string;
+  expires_at: string;
+  name: string;
+}
+
 export const authApi = {
   getLacisOathConfig: () => request<LacisOathConfig>('/auth/lacisoath-config'),
 
@@ -925,6 +938,12 @@ export const authApi = {
   logout: () =>
     request<{ ok: boolean }>('/auth/logout', {
       method: 'POST',
+    }),
+
+  createApiKey: (data: ApiKeyRequest) =>
+    request<ApiKeyResponse>('/auth/api-key', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 };
 

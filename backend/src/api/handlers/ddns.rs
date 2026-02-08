@@ -1,14 +1,15 @@
 //! DDNS configuration handlers
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{CreateDdnsRequest, DdnsProvider, LinkOmadaRequest, UpdateDdnsRequest};
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired, CreateDdnsRequest, DdnsProvider, LinkOmadaRequest, UpdateDdnsRequest};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -49,11 +50,14 @@ pub async fn get_ddns(
     Ok(Json(config))
 }
 
-/// POST /api/ddns - Create a new DDNS configuration
+/// POST /api/ddns - Create a new DDNS configuration (admin: permission >= 80)
 pub async fn create_ddns(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<CreateDdnsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validate based on provider
     match payload.provider {
         DdnsProvider::DynDns | DdnsProvider::NoIp => {
@@ -86,12 +90,15 @@ pub async fn create_ddns(
     ))
 }
 
-/// PUT /api/ddns/:id - Update a DDNS configuration
+/// PUT /api/ddns/:id - Update a DDNS configuration (admin: permission >= 80)
 pub async fn update_ddns(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(payload): Json<UpdateDdnsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let updated = state.app_state.mysql.update_ddns(id, &payload).await?;
 
     if updated {
@@ -102,16 +109,35 @@ pub async fn update_ddns(
     }
 }
 
-/// DELETE /api/ddns/:id - Delete a DDNS configuration
+/// DELETE /api/ddns/:id - Delete a DDNS configuration (dangerous: permission == 100, confirm required)
 pub async fn delete_ddns(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
+    Query(confirm): Query<ConfirmQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
+    // Confirm guard
+    if !confirm.confirm {
+        let config = state.app_state.mysql.get_ddns(id).await?;
+        let target_info = config
+            .map(|c| format!("DDNS #{} ({})", id, c.hostname))
+            .unwrap_or_else(|| format!("DDNS #{}", id));
+
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_ddns".to_string(),
+            target: target_info,
+            warning: "This will remove the DDNS configuration. DNS updates will stop.".to_string(),
+            confirm_required: true,
+        })));
+    }
+
     let deleted = state.app_state.mysql.delete_ddns(id).await?;
 
     if deleted {
         tracing::info!("Deleted DDNS config {}", id);
-        Ok(Json(SuccessResponse::new("DDNS configuration deleted")))
+        Ok(Json(serde_json::json!(SuccessResponse::new("DDNS configuration deleted"))))
     } else {
         Err(AppError::NotFound(format!("DDNS config {} not found", id)))
     }

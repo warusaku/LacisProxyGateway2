@@ -1,14 +1,15 @@
 //! Proxy routes handlers
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{CreateRouteRequest, UpdateRouteRequest};
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired, CreateRouteRequest, UpdateRouteRequest};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -124,11 +125,14 @@ pub async fn get_route(
     Ok(Json(route))
 }
 
-/// POST /api/routes - Create a new route
+/// POST /api/routes - Create a new route (admin: permission >= 80)
 pub async fn create_route(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<CreateRouteRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validate path format
     if !payload.path.starts_with('/') {
         return Err(AppError::BadRequest("Path must start with /".to_string()));
@@ -178,12 +182,15 @@ pub async fn create_route(
     ))
 }
 
-/// PUT /api/routes/:id - Update a route
+/// PUT /api/routes/:id - Update a route (admin: permission >= 80)
 pub async fn update_route(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(payload): Json<UpdateRouteRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Get old route for audit log
     let old_route = state.app_state.mysql.get_route(id).await?;
 
@@ -271,13 +278,32 @@ pub async fn update_route(
     }
 }
 
-/// DELETE /api/routes/:id - Delete a route
+/// DELETE /api/routes/:id - Delete a route (dangerous: permission == 100, confirm required)
 pub async fn delete_route(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
+    Query(confirm): Query<ConfirmQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
     // Get route info before deletion for audit log
     let route = state.app_state.mysql.get_route(id).await?;
+
+    // Confirm guard: return impact info if confirm is not set
+    if !confirm.confirm {
+        let target_info = route
+            .as_ref()
+            .map(|r| format!("route #{} ({} → {})", id, r.path, r.target))
+            .unwrap_or_else(|| format!("route #{}", id));
+
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_route".to_string(),
+            target: target_info,
+            warning: "This will remove the proxy route. Active connections will be dropped.".to_string(),
+            confirm_required: true,
+        })));
+    }
 
     let deleted = state.app_state.mysql.delete_route(id).await?;
 
@@ -302,7 +328,7 @@ pub async fn delete_route(
         }
 
         tracing::info!("Deleted route {}", id);
-        Ok(Json(SuccessResponse::new("Route deleted")))
+        Ok(Json(serde_json::json!(SuccessResponse::new("Route deleted"))))
     } else {
         Err(AppError::NotFound(format!("Route {} not found", id)))
     }

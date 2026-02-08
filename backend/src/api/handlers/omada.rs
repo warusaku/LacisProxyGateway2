@@ -4,10 +4,14 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    response::IntoResponse,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
+use crate::error::AppError;
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
 use crate::omada::manager::OmadaManager;
 use crate::omada::OmadaClient;
 use crate::proxy::ProxyState;
@@ -112,20 +116,39 @@ pub async fn get_controller(
     }
 }
 
-/// DELETE /api/omada/controllers/:id - Remove a controller
+/// DELETE /api/omada/controllers/:id - Remove a controller (dangerous: permission == 100, confirm required)
 pub async fn delete_controller(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+    Query(confirm): Query<ConfirmQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
+    // Confirm guard
+    if !confirm.confirm {
+        let ctrl = state.app_state.mongo.get_omada_controller(&id).await.ok().flatten();
+        let target_info = ctrl
+            .map(|c| format!("Omada controller '{}' ({})", c.display_name, id))
+            .unwrap_or_else(|| format!("Omada controller {}", id));
+
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_controller".to_string(),
+            target: target_info,
+            warning: "This will remove the Omada controller and all synced device/client data.".to_string(),
+            confirm_required: true,
+        })));
+    }
+
     match state.omada_manager.remove_controller(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Controller {} removed", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

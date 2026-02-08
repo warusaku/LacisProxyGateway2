@@ -4,10 +4,14 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    response::IntoResponse,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
+use crate::error::AppError;
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
 use crate::external::ExternalDeviceManager;
 use crate::proxy::ProxyState;
 
@@ -109,17 +113,31 @@ pub async fn get_device(
 /// DELETE /api/external/devices/:id - Remove a device
 pub async fn delete_device(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+    Query(confirm): Query<ConfirmQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
+    // Confirm guard
+    if !confirm.confirm {
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_device".to_string(),
+            target: format!("external device {}", id),
+            warning: "This will remove the external device and all synced client data.".to_string(),
+            confirm_required: true,
+        })));
+    }
+
     match state.external_manager.remove_device(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Device {} removed", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

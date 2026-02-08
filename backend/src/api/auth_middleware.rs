@@ -1,7 +1,11 @@
-//! Authentication middleware - validates session JWT from HttpOnly cookie
+//! Authentication middleware - validates session JWT from Cookie or Bearer token
 //!
-//! Extracts the `lpg_session` cookie, verifies the HS256 JWT,
-//! and injects AuthUser into request extensions for downstream handlers.
+//! Supports two authentication methods:
+//! 1. `Authorization: Bearer <JWT>` header (AI agents, CLI, API keys)
+//! 2. `lpg_session` cookie (browser sessions)
+//!
+//! Bearer token takes priority over cookie when both are present.
+//! Both use the same JWT format (SessionClaims) and verification logic.
 
 use axum::{
     body::Body,
@@ -13,10 +17,11 @@ use axum::{
 };
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 
+use crate::error::AppError;
 use crate::models::{AuthUser, SessionClaims};
 use crate::proxy::ProxyState;
 
-/// Middleware that requires a valid session cookie.
+/// Middleware that requires a valid session (Bearer token or Cookie).
 /// On success, injects AuthUser into request extensions.
 /// On failure, returns 401 Unauthorized.
 pub async fn require_auth(
@@ -24,7 +29,9 @@ pub async fn require_auth(
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
-    let token = extract_session_cookie(req.headers());
+    // Bearer token takes priority (AI agent / CLI), then fall back to cookie (browser)
+    let token = extract_bearer_token(req.headers())
+        .or_else(|| extract_session_cookie(req.headers()));
 
     match token {
         Some(t) => {
@@ -41,6 +48,33 @@ pub async fn require_auth(
         }
         None => unauthorized_response(),
     }
+}
+
+/// Check that the authenticated user has sufficient permission level.
+///
+/// Permission hierarchy:
+///   - read   (>= 0):   GET endpoints, dashboard, stats, logs
+///   - operate (>= 50):  sync triggers, diagnostics, DDNS update
+///   - admin  (>= 80):  route/DDNS create/update, settings, nginx ops
+///   - dangerous (== 100): DELETE operations, API key creation
+pub fn require_permission(user: &AuthUser, required: i32) -> Result<(), AppError> {
+    if user.permission < required {
+        Err(AppError::Forbidden(format!(
+            "Insufficient permission: {} (required: {})",
+            user.permission, required
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Extract Bearer token from Authorization header
+fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
 }
 
 /// Extract lpg_session value from Cookie header
@@ -111,6 +145,71 @@ mod tests {
     fn test_extract_session_cookie_no_cookie_header() {
         let headers = axum::http::HeaderMap::new();
         assert_eq!(extract_session_cookie(&headers), None);
+    }
+
+    #[test]
+    fn test_extract_bearer_token_present() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer eyJhbGciOiJIUzI1NiJ9.test"),
+        );
+        assert_eq!(
+            extract_bearer_token(&headers),
+            Some("eyJhbGciOiJIUzI1NiJ9.test".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_bearer_token_absent() {
+        let headers = axum::http::HeaderMap::new();
+        assert_eq!(extract_bearer_token(&headers), None);
+    }
+
+    #[test]
+    fn test_extract_bearer_token_wrong_scheme() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Basic dXNlcjpwYXNz"),
+        );
+        assert_eq!(extract_bearer_token(&headers), None);
+    }
+
+    #[test]
+    fn test_require_permission_sufficient() {
+        let user = AuthUser {
+            sub: "test@example.com".to_string(),
+            lacis_id: None,
+            permission: 100,
+            auth_method: "local".to_string(),
+        };
+        assert!(require_permission(&user, 80).is_ok());
+        assert!(require_permission(&user, 100).is_ok());
+    }
+
+    #[test]
+    fn test_require_permission_insufficient() {
+        let user = AuthUser {
+            sub: "test@example.com".to_string(),
+            lacis_id: None,
+            permission: 50,
+            auth_method: "lacisoath".to_string(),
+        };
+        assert!(require_permission(&user, 80).is_err());
+        assert!(require_permission(&user, 100).is_err());
+    }
+
+    #[test]
+    fn test_require_permission_exact_boundary() {
+        let user = AuthUser {
+            sub: "test@example.com".to_string(),
+            lacis_id: None,
+            permission: 80,
+            auth_method: "lacisoath".to_string(),
+        };
+        assert!(require_permission(&user, 80).is_ok());
+        assert!(require_permission(&user, 81).is_err());
     }
 
     #[test]

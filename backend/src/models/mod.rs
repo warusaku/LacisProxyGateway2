@@ -531,6 +531,45 @@ pub struct AuthResponse {
 }
 
 // ============================================================================
+// API Key Models
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ApiKeyRequest {
+    /// Key name for identification (e.g. "claude-code-agent")
+    pub name: String,
+    /// Expiration in days (default: 365)
+    pub expires_in_days: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApiKeyResponse {
+    /// Bearer token (JWT) for API access
+    pub token: String,
+    /// ISO 8601 expiration timestamp
+    pub expires_at: String,
+    /// Key name
+    pub name: String,
+}
+
+/// Confirm guard query parameter for dangerous operations
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfirmQuery {
+    /// Must be true to actually execute dangerous operations
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Response when confirm=true is required but not provided
+#[derive(Debug, Serialize)]
+pub struct ConfirmRequired {
+    pub action: String,
+    pub target: String,
+    pub warning: String,
+    pub confirm_required: bool,
+}
+
+// ============================================================================
 // Audit Log Models
 // ============================================================================
 

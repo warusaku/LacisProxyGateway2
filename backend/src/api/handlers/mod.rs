@@ -1,5 +1,6 @@
 //! HTTP handlers module
 
+pub mod agent;
 pub mod auth;
 pub mod aranea;
 mod audit;
@@ -18,6 +19,7 @@ mod tools;
 mod topology;
 pub mod wireguard;
 
+pub use self::agent::*;
 pub use self::aranea::*;
 pub use self::audit::*;
 pub use self::dashboard::*;

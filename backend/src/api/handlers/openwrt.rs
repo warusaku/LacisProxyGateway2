@@ -4,10 +4,14 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    response::IntoResponse,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
+use crate::error::AppError;
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
 use crate::openwrt::OpenWrtManager;
 use crate::proxy::ProxyState;
 
@@ -112,17 +116,31 @@ pub async fn get_router(
 /// DELETE /api/openwrt/routers/:id - Remove a router
 pub async fn delete_router(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+    Query(confirm): Query<ConfirmQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
+    // Confirm guard
+    if !confirm.confirm {
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_router".to_string(),
+            target: format!("OpenWrt router {}", id),
+            warning: "This will remove the OpenWrt router and all synced client data.".to_string(),
+            confirm_required: true,
+        })));
+    }
+
     match state.openwrt_manager.remove_router(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Router {} removed", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

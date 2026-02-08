@@ -3,11 +3,13 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -55,12 +57,15 @@ pub struct UpdateSettingRequest {
     pub value: Option<String>,
 }
 
-/// PUT /api/settings/:key - Update a setting
+/// PUT /api/settings/:key - Update a setting (admin: permission >= 80)
 pub async fn update_setting(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(key): Path<String>,
     Json(payload): Json<UpdateSettingRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validate setting key exists
     let existing = state.app_state.mysql.get_setting(&key).await;
     if existing.is_err() {
@@ -171,11 +176,14 @@ pub async fn get_restart_settings(
     Ok(Json(restart_settings))
 }
 
-/// PUT /api/settings/restart - Update restart settings
+/// PUT /api/settings/restart - Update restart settings (admin: permission >= 80)
 pub async fn update_restart_settings(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<UpdateRestartSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     if let Some(enabled) = payload.scheduled_enabled {
         state
             .app_state
@@ -240,11 +248,14 @@ pub struct RestartServiceRequest {
     pub service: Option<String>,
 }
 
-/// POST /api/settings/restart/trigger - Manually trigger service restart
+/// POST /api/settings/restart/trigger - Manually trigger service restart (dangerous: permission == 100)
 pub async fn trigger_manual_restart(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<RestartServiceRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
     let service = payload.service.as_deref().unwrap_or("backend");
     tracing::warn!("Manual restart triggered via API for service: {}", service);
 

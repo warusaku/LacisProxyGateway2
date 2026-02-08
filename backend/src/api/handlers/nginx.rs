@@ -4,14 +4,16 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tokio::fs;
 
+use crate::api::auth_middleware::require_permission;
 use crate::db::mysql::MySqlDb;
 use crate::error::AppError;
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -105,11 +107,14 @@ pub async fn get_nginx_status(
     }))
 }
 
-/// POST /api/nginx/enable-full-proxy - Enable full proxy mode
+/// POST /api/nginx/enable-full-proxy - Enable full proxy mode (admin: permission >= 80)
 pub async fn enable_full_proxy(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<UpdateNginxConfigRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let backend_port = payload.backend_port.unwrap_or(8080);
     let server_name = payload.server_name.unwrap_or_else(|| "_".to_string());
 
@@ -174,7 +179,10 @@ pub async fn enable_full_proxy(
 /// POST /api/nginx/reload - Reload nginx
 pub async fn reload_nginx_handler(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Test config first
     let (valid, error) = test_nginx_config().await;
     if !valid {
@@ -197,7 +205,10 @@ pub async fn reload_nginx_handler(
 /// POST /api/nginx/test - Test nginx config
 pub async fn test_nginx_config_handler(
     State(_state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let (valid, error) = test_nginx_config().await;
 
     #[derive(Serialize)]
@@ -333,8 +344,11 @@ pub struct UpdateBodySizeRequest {
 /// PUT /api/nginx/body-size - Update client_max_body_size
 pub async fn update_body_size(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<UpdateBodySizeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validate size format (e.g., 50M, 100M, 1G)
     let size = payload.size.trim().to_uppercase();
     if !size.chars().last().map(|c| c == 'M' || c == 'G' || c == 'K').unwrap_or(false) {
@@ -455,8 +469,11 @@ pub async fn get_nginx_template_settings(
 /// PUT /api/nginx/template-settings - Update nginx template settings (DB only, no nginx reload)
 pub async fn update_nginx_template_settings(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<UpdateNginxTemplateSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validation
     if let Some(port) = payload.backend_port {
         if port == 0 {
@@ -541,7 +558,10 @@ pub async fn update_nginx_template_settings(
 /// POST /api/nginx/regenerate - Regenerate nginx config from DB settings and reload
 pub async fn regenerate_nginx_config(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let db = &state.app_state.mysql;
     let settings = load_template_settings_from_db(db).await?;
 
