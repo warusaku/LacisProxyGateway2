@@ -4,10 +4,14 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    response::IntoResponse,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::api::auth_middleware::require_permission;
+use crate::error::AppError;
+use crate::models::{AuthUser, ConfirmRequired};
 use crate::omada::client::{CreateWgPeerRequest, UpdateWgPeerRequest};
 use crate::proxy::ProxyState;
 use crate::wireguard::{config as wg_config, keygen};
@@ -42,6 +46,8 @@ pub struct UpdatePeerApiRequest {
 pub struct DeletePeerQuery {
     pub controller_id: String,
     pub site_id: String,
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -64,18 +70,21 @@ pub async fn generate_keypair() -> Json<serde_json::Value> {
     }))
 }
 
-/// POST /api/wireguard/peers - Create a peer via Omada OpenAPI
+/// POST /api/wireguard/peers - Create a peer via Omada OpenAPI (admin: permission >= 80)
 pub async fn create_peer(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(req): Json<CreatePeerApiRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let client = match state.omada_manager.get_client(&req.controller_id).await {
         Some(c) => c,
         None => {
-            return Json(serde_json::json!({
+            return Ok(Json(serde_json::json!({
                 "ok": false,
                 "error": format!("Controller {} not found", req.controller_id),
-            }));
+            })));
         }
     };
 
@@ -90,38 +99,40 @@ pub async fn create_peer(
 
     match client.create_wireguard_peer(&req.site_id, &omada_req).await {
         Ok(result) => {
-            // Trigger immediate re-sync of WG peers for this controller
             let syncer = crate::omada::OmadaSyncer::new(
                 state.omada_manager.clone(),
                 state.app_state.mongo.clone(),
             );
             let _ = syncer.sync_one(&req.controller_id).await;
 
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "ok": true,
                 "peer": result,
-            }))
+            })))
         }
-        Err(e) => Json(serde_json::json!({
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 
-/// PUT /api/wireguard/peers/:id - Update a peer via Omada OpenAPI
+/// PUT /api/wireguard/peers/:id - Update a peer via Omada OpenAPI (admin: permission >= 80)
 pub async fn update_peer(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(peer_id): Path<String>,
     Json(req): Json<UpdatePeerApiRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let client = match state.omada_manager.get_client(&req.controller_id).await {
         Some(c) => c,
         None => {
-            return Json(serde_json::json!({
+            return Ok(Json(serde_json::json!({
                 "ok": false,
                 "error": format!("Controller {} not found", req.controller_id),
-            }));
+            })));
         }
     };
 
@@ -143,31 +154,44 @@ pub async fn update_peer(
             );
             let _ = syncer.sync_one(&req.controller_id).await;
 
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "ok": true,
                 "message": format!("Peer {} updated", peer_id),
-            }))
+            })))
         }
-        Err(e) => Json(serde_json::json!({
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 
-/// DELETE /api/wireguard/peers/:id - Delete a peer via Omada OpenAPI
+/// DELETE /api/wireguard/peers/:id - Delete a peer via Omada OpenAPI (dangerous: permission == 100, confirm required)
 pub async fn delete_peer(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(peer_id): Path<String>,
     Query(q): Query<DeletePeerQuery>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 100)?;
+
+    // Confirm guard
+    if !q.confirm {
+        return Ok(Json(serde_json::json!(ConfirmRequired {
+            action: "delete_wireguard_peer".to_string(),
+            target: format!("WireGuard peer {}", peer_id),
+            warning: "This will delete the WireGuard peer from the Omada controller. VPN connectivity will be lost.".to_string(),
+            confirm_required: true,
+        })));
+    }
+
     let client = match state.omada_manager.get_client(&q.controller_id).await {
         Some(c) => c,
         None => {
-            return Json(serde_json::json!({
+            return Ok(Json(serde_json::json!({
                 "ok": false,
                 "error": format!("Controller {} not found", q.controller_id),
-            }));
+            })));
         }
     };
 
@@ -182,15 +206,15 @@ pub async fn delete_peer(
             );
             let _ = syncer.sync_one(&q.controller_id).await;
 
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "ok": true,
                 "message": format!("Peer {} deleted", peer_id),
-            }))
+            })))
         }
-        Err(e) => Json(serde_json::json!({
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

@@ -86,10 +86,13 @@ pub async fn update_setting(
     }
 }
 
-/// POST /api/settings/test-discord - Test Discord webhook
+/// POST /api/settings/test-discord - Test Discord webhook (admin: permission >= 80)
 pub async fn test_discord_notification(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let webhook_url = state
         .app_state
         .mysql

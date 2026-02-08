@@ -58,24 +58,27 @@ pub struct OmadaWgQuery {
 // Controller management
 // ============================================================================
 
-/// POST /api/omada/controllers - Register a new controller
+/// POST /api/omada/controllers - Register a new controller (admin: permission >= 80)
 pub async fn register_controller(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(req): Json<RegisterControllerRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     match state
         .omada_manager
         .register_controller(&req.display_name, &req.base_url, &req.client_id, &req.client_secret)
         .await
     {
-        Ok(doc) => Json(serde_json::json!({
+        Ok(doc) => Ok(Json(serde_json::json!({
             "ok": true,
             "controller": doc,
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 
@@ -161,25 +164,28 @@ pub async fn test_controller_connection(
     Json(serde_json::to_value(result).unwrap_or_default())
 }
 
-/// POST /api/omada/controllers/:id/sync - Manual sync trigger
+/// POST /api/omada/controllers/:id/sync - Manual sync trigger (operate: permission >= 50)
 pub async fn sync_controller(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let syncer = crate::omada::OmadaSyncer::new(
         state.omada_manager.clone(),
         state.app_state.mongo.clone(),
     );
 
     match syncer.sync_one(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Controller {} synced", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

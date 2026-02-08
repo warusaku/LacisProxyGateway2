@@ -46,11 +46,14 @@ pub struct ExternalClientQuery {
 // Handlers
 // ============================================================================
 
-/// POST /api/external/devices - Register a new device
+/// POST /api/external/devices - Register a new device (admin: permission >= 80)
 pub async fn register_device(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(req): Json<RegisterDeviceRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     match state
         .external_manager
         .register_device(
@@ -63,14 +66,14 @@ pub async fn register_device(
         )
         .await
     {
-        Ok(doc) => Json(serde_json::json!({
+        Ok(doc) => Ok(Json(serde_json::json!({
             "ok": true,
             "device": doc,
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 
@@ -161,25 +164,28 @@ pub async fn test_device_connection(
     }
 }
 
-/// POST /api/external/devices/:id/poll - Manual poll
+/// POST /api/external/devices/:id/poll - Manual poll (operate: permission >= 50)
 pub async fn poll_device(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let syncer = crate::external::ExternalSyncer::new(
         state.external_manager.clone(),
         state.app_state.mongo.clone(),
     );
 
     match syncer.poll_one(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Device {} polled", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

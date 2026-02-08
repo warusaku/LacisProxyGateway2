@@ -48,11 +48,14 @@ pub struct OpenWrtClientQuery {
 // Handlers
 // ============================================================================
 
-/// POST /api/openwrt/routers - Register a new router
+/// POST /api/openwrt/routers - Register a new router (admin: permission >= 80)
 pub async fn register_router(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(req): Json<RegisterRouterRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     match state
         .openwrt_manager
         .register_router(
@@ -66,14 +69,14 @@ pub async fn register_router(
         )
         .await
     {
-        Ok(doc) => Json(serde_json::json!({
+        Ok(doc) => Ok(Json(serde_json::json!({
             "ok": true,
             "router": doc,
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 
@@ -165,25 +168,28 @@ pub async fn test_router_connection(
     }
 }
 
-/// POST /api/openwrt/routers/:id/poll - Manual poll
+/// POST /api/openwrt/routers/:id/poll - Manual poll (operate: permission >= 50)
 pub async fn poll_router(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<String>,
-) -> Json<serde_json::Value> {
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let syncer = crate::openwrt::OpenWrtSyncer::new(
         state.openwrt_manager.clone(),
         state.app_state.mongo.clone(),
     );
 
     match syncer.poll_one(&id).await {
-        Ok(()) => Json(serde_json::json!({
+        Ok(()) => Ok(Json(serde_json::json!({
             "ok": true,
             "message": format!("Router {} polled", id),
-        })),
-        Err(e) => Json(serde_json::json!({
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
             "ok": false,
             "error": e,
-        })),
+        }))),
     }
 }
 

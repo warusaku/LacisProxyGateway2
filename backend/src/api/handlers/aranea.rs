@@ -3,18 +3,23 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 
+use crate::api::auth_middleware::require_permission;
 use crate::aranea::client::AraneaDeviceRegistration;
 use crate::error::AppError;
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
-/// POST /api/aranea/register - Register a device via araneaDeviceGate
+/// POST /api/aranea/register - Register a device via araneaDeviceGate (admin: permission >= 80)
 pub async fn aranea_register_device(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<AraneaDeviceRegistration>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     let result = state
         .aranea_client
         .register_device(&payload)

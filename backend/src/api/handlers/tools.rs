@@ -3,22 +3,36 @@
 use axum::{
     extract::{Query, State},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
-use crate::db::mongo::OperationLogQuery;
+use crate::api::auth_middleware::require_permission;
+use crate::db::mongo::{OperationLogQuery, OperatorInfo};
 use crate::error::AppError;
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
-/// POST /api/tools/sync/omada - Manual Omada sync trigger
+/// Helper to build OperatorInfo from AuthUser
+fn operator_from(user: &AuthUser) -> OperatorInfo {
+    OperatorInfo {
+        sub: user.sub.clone(),
+        auth_method: user.auth_method.clone(),
+        permission: user.permission,
+    }
+}
+
+/// POST /api/tools/sync/omada - Manual Omada sync trigger (operate: permission >= 50)
 pub async fn tool_sync_omada(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log("sync_omada", "manual", None)
+        .start_operation_log_with_operator("sync_omada", "api", None, Some(operator_from(&user)))
         .await
         .unwrap_or_default();
 
@@ -57,14 +71,17 @@ pub async fn tool_sync_omada(
     })))
 }
 
-/// POST /api/tools/sync/openwrt - Manual OpenWrt sync trigger
+/// POST /api/tools/sync/openwrt - Manual OpenWrt sync trigger (operate: permission >= 50)
 pub async fn tool_sync_openwrt(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log("sync_openwrt", "manual", None)
+        .start_operation_log_with_operator("sync_openwrt", "api", None, Some(operator_from(&user)))
         .await
         .unwrap_or_default();
 
@@ -103,14 +120,17 @@ pub async fn tool_sync_openwrt(
     })))
 }
 
-/// POST /api/tools/sync/external - Manual External sync trigger
+/// POST /api/tools/sync/external - Manual External sync trigger (operate: permission >= 50)
 pub async fn tool_sync_external(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log("sync_external", "manual", None)
+        .start_operation_log_with_operator("sync_external", "api", None, Some(operator_from(&user)))
         .await
         .unwrap_or_default();
 
@@ -149,14 +169,17 @@ pub async fn tool_sync_external(
     })))
 }
 
-/// POST /api/tools/ddns/update-all - Manual DDNS update for all configs
+/// POST /api/tools/ddns/update-all - Manual DDNS update for all configs (operate: permission >= 50)
 pub async fn tool_ddns_update_all(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log("ddns_update_all", "manual", None)
+        .start_operation_log_with_operator("ddns_update_all", "api", None, Some(operator_from(&user)))
         .await
         .unwrap_or_default();
 
@@ -198,10 +221,13 @@ pub struct PingRequest {
     pub host: String,
 }
 
-/// POST /api/tools/network/ping - Ping a host from server
+/// POST /api/tools/network/ping - Ping a host from server (operate: permission >= 50)
 pub async fn tool_network_ping(
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<PingRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     // Validate hostname (prevent command injection)
     if payload.host.contains(';') || payload.host.contains('|') || payload.host.contains('&')
         || payload.host.contains('$') || payload.host.contains('`') || payload.host.contains('\n')
@@ -231,10 +257,13 @@ pub struct DnsRequest {
     pub hostname: String,
 }
 
-/// POST /api/tools/network/dns - DNS lookup
+/// POST /api/tools/network/dns - DNS lookup (operate: permission >= 50)
 pub async fn tool_network_dns(
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<DnsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     match tokio::net::lookup_host(format!("{}:0", payload.hostname)).await {
         Ok(addrs) => {
             let ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();

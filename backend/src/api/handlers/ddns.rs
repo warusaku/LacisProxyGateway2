@@ -143,11 +143,14 @@ pub async fn delete_ddns(
     }
 }
 
-/// POST /api/ddns/:id/update - Trigger manual DDNS update
+/// POST /api/ddns/:id/update - Trigger manual DDNS update (operate: permission >= 50)
 pub async fn trigger_ddns_update(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let config = state
         .app_state
         .mysql
@@ -251,12 +254,15 @@ pub async fn list_ddns_integrated(
     Ok(Json(results))
 }
 
-/// PUT /api/ddns/:id/link-omada - Link DDNS config to Omada controller/site
+/// PUT /api/ddns/:id/link-omada - Link DDNS config to Omada controller/site (admin: permission >= 80)
 pub async fn link_ddns_omada(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(payload): Json<LinkOmadaRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Verify DDNS config exists
     let _config = state
         .app_state

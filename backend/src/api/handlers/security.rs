@@ -35,11 +35,14 @@ pub async fn list_blocked_ips(
     Ok(Json(ips))
 }
 
-/// POST /api/security/blocked-ips - Block an IP address
+/// POST /api/security/blocked-ips - Block an IP address (admin: permission >= 80)
 pub async fn block_ip(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<BlockIpRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     // Validate IP format (basic check)
     if payload.ip.is_empty() {
         return Err(AppError::BadRequest("IP address is required".to_string()));

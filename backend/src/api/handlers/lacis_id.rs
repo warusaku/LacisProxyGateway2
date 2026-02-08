@@ -3,12 +3,14 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
 use crate::lacis_id::{compute_network_device_lacis_id, default_product_code, normalize_mac_for_lacis_id};
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
 #[derive(Debug, Serialize)]
@@ -163,12 +165,15 @@ pub struct AssignLacisIdRequest {
     pub lacis_id: String,
 }
 
-/// POST /api/lacis-id/assign/:device_id — assign a candidate lacisID to a device in DB
+/// POST /api/lacis-id/assign/:device_id — assign a candidate lacisID to a device in DB (admin: permission >= 80)
 pub async fn lacis_id_assign(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Path(device_id): Path<String>,
     Json(payload): Json<AssignLacisIdRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 80)?;
+
     if payload.lacis_id.len() != 20 {
         return Err(AppError::BadRequest(
             "LacisID must be exactly 20 characters".to_string(),

@@ -6,12 +6,15 @@
 use axum::{
     extract::State,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
+use crate::api::auth_middleware::require_permission;
+use crate::db::mongo::OperatorInfo;
 use crate::error::AppError;
+use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
 // Re-use nginx helper functions (pub(crate) in nginx.rs)
@@ -70,18 +73,26 @@ const ALL_CATEGORIES: &[&str] = &[
 // Main handler
 // ============================================================================
 
-/// POST /api/tools/diagnostics
+/// POST /api/tools/diagnostics (operate: permission >= 50)
 pub async fn run_diagnostics(
     State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
     Json(payload): Json<DiagnosticsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
     let overall_start = Instant::now();
 
-    // Start operation log
+    // Start operation log with operator info
+    let operator = OperatorInfo {
+        sub: user.sub.clone(),
+        auth_method: user.auth_method.clone(),
+        permission: user.permission,
+    };
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log("diagnostics", "api", None)
+        .start_operation_log_with_operator("diagnostics", "api", None, Some(operator))
         .await
         .unwrap_or_default();
 
