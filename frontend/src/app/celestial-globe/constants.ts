@@ -8,6 +8,7 @@ import type { NodeType, EdgeType, LogicDeviceType } from './types';
 // ============================================================================
 
 export const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: string }> = {
+  internet:     { bg: '#60A5FA', border: '#2563EB', text: '#FFFFFF' }, // blue (cloud)
   controller:   { bg: '#818CF8', border: '#6366F1', text: '#FFFFFF' }, // indigo
   gateway:      { bg: '#34D399', border: '#10B981', text: '#FFFFFF' }, // emerald
   router:       { bg: '#34D399', border: '#10B981', text: '#FFFFFF' }, // emerald
@@ -26,6 +27,7 @@ export const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: s
 
 // Node sizes (reference only — DeviceNode.tsx computes width dynamically: infra=200, client=160)
 export const NODE_SIZES: Record<NodeType, { width: number; height: number }> = {
+  internet:     { width: 160, height: 72 },
   controller:   { width: 200, height: 100 },
   gateway:      { width: 200, height: 80 },
   router:       { width: 200, height: 80 },
@@ -43,6 +45,7 @@ export const NODE_SIZES: Record<NodeType, { width: number; height: number }> = {
 // ============================================================================
 
 export const NODE_ICONS: Record<NodeType, string> = {
+  internet:     'Cloud',
   controller:   'Globe',
   gateway:      'Globe',
   router:       'Globe',

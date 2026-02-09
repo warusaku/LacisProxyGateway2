@@ -1,19 +1,20 @@
 'use client';
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
 import {
-  Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
+  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
   type LucideIcon,
 } from 'lucide-react';
 import type { DeviceNodeData, NodeType } from '../types';
 import { NODE_COLORS, STATUS_COLORS } from '../constants';
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
+  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
 };
 
 const ICON_FOR_TYPE: Record<NodeType, string> = {
+  internet: 'Cloud',
   controller: 'Globe',
   gateway: 'Globe',
   router: 'Globe',
@@ -26,8 +27,10 @@ const ICON_FOR_TYPE: Record<NodeType, string> = {
   lpg_server: 'Server',
 };
 
+const LABEL_MAX_LENGTH = 50;
+
 function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
-  const { node, selected, onCollapse } = data;
+  const { node, selected, onCollapse, onLabelEdit } = data;
   const nodeType = node.node_type as NodeType;
   const colors = NODE_COLORS[nodeType] || NODE_COLORS.client;
   const iconName = ICON_FOR_TYPE[nodeType] || 'Monitor';
@@ -37,10 +40,59 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
   const isOffline = node.status === 'offline' || node.status === 'inactive';
   const isClient = nodeType === 'client' || nodeType === 'wg_peer';
 
+  // Inline label editing state
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [shaking, setShaking] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const handleCollapseClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onCollapse(node.id);
   }, [node.id, onCollapse]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Don't allow editing Internet virtual node
+    if (node.id === '__internet__') return;
+    setEditValue(node.label);
+    setEditing(true);
+  }, [node.id, node.label]);
+
+  const commitEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed.length > LABEL_MAX_LENGTH) {
+      // Validation fail — shake animation
+      setShaking(true);
+      setTimeout(() => setShaking(false), 400);
+      return;
+    }
+    if (trimmed !== node.label) {
+      onLabelEdit(node.id, trimmed);
+    }
+    setEditing(false);
+  }, [editValue, node.id, node.label, onLabelEdit]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      commitEdit();
+    } else if (e.key === 'Escape') {
+      cancelEdit();
+    }
+  }, [commitEdit, cancelEdit]);
+
+  // Auto-focus input when editing starts
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
 
   // Node width: infrastructure nodes wider, clients narrower
   const nodeWidth = isClient ? 160 : 200;
@@ -80,20 +132,47 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
 
         {/* Label + type */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              color: isOffline ? '#6B7280' : '#E5E7EB',
-              fontSize: 12,
-              fontWeight: 600,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              lineHeight: '16px',
-            }}
-            title={node.label}
-          >
-            {node.label}
-          </div>
+          {editing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={editValue}
+              onChange={e => setEditValue(e.target.value.slice(0, LABEL_MAX_LENGTH))}
+              onKeyDown={handleKeyDown}
+              onBlur={commitEdit}
+              maxLength={LABEL_MAX_LENGTH}
+              className={shaking ? 'cg-shake' : ''}
+              style={{
+                width: '100%',
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#E5E7EB',
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid #3B82F6',
+                borderRadius: 4,
+                padding: '1px 4px',
+                outline: 'none',
+                lineHeight: '16px',
+              }}
+            />
+          ) : (
+            <div
+              onDoubleClick={handleDoubleClick}
+              style={{
+                color: isOffline ? '#6B7280' : '#E5E7EB',
+                fontSize: 12,
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                lineHeight: '16px',
+                cursor: 'text',
+              }}
+              title={`${node.label} (double-click to edit)`}
+            >
+              {node.label}
+            </div>
+          )}
           <div style={{
             fontSize: 10,
             color: '#6B7280',

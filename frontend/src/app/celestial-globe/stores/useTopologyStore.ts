@@ -15,6 +15,40 @@ import type {
 } from '../types';
 import { topologyV2Api } from '@/lib/api';
 
+// ============================================================================
+// Position batch debounce (module-level to persist across renders)
+// ============================================================================
+const pendingPositions = new Map<string, { x: number; y: number }>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const DEBOUNCE_MS = 500;
+
+function scheduleFlush() {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushPendingPositions, DEBOUNCE_MS);
+}
+
+async function flushPendingPositions() {
+  flushTimer = null;
+  if (pendingPositions.size === 0) return;
+
+  const batch = Array.from(pendingPositions.entries()).map(([node_id, pos]) => ({
+    node_id,
+    x: pos.x,
+    y: pos.y,
+  }));
+  pendingPositions.clear();
+
+  try {
+    await topologyV2Api.batchUpdatePositions(batch);
+  } catch (e) {
+    console.error('Failed to batch-persist positions:', e);
+  }
+}
+
+// ============================================================================
+// Store
+// ============================================================================
+
 export const useTopologyStore = create<TopologyStoreState>((set, get) => ({
   // Data
   nodes: [],
@@ -66,7 +100,7 @@ export const useTopologyStore = create<TopologyStoreState>((set, get) => ({
   },
 
   updateNodePosition: async (nodeId: string, x: number, y: number) => {
-    // Optimistic update
+    // Optimistic update (immediate UI feedback)
     set(state => ({
       nodes: state.nodes.map(n =>
         n.id === nodeId
@@ -74,11 +108,9 @@ export const useTopologyStore = create<TopologyStoreState>((set, get) => ({
           : n
       ),
     }));
-    try {
-      await topologyV2Api.updateNodePosition(nodeId, x, y);
-    } catch (e) {
-      console.error('Failed to persist position:', e);
-    }
+    // Accumulate and debounce API call
+    pendingPositions.set(nodeId, { x, y });
+    scheduleFlush();
   },
 
   toggleCollapse: async (nodeId: string) => {
@@ -149,6 +181,22 @@ export const useTopologyStore = create<TopologyStoreState>((set, get) => ({
         error: e instanceof Error ? e.message : 'LogicDevice deletion failed',
         loading: false,
       });
+    }
+  },
+
+  updateNodeLabel: async (nodeId: string, label: string) => {
+    // Optimistic update
+    set(state => ({
+      nodes: state.nodes.map(n =>
+        n.id === nodeId ? { ...n, label } : n
+      ),
+    }));
+    try {
+      await topologyV2Api.updateNodeLabel(nodeId, label);
+    } catch (e) {
+      console.error('Failed to update label:', e);
+      // Revert by refetching
+      await get().fetchTopology();
     }
   },
 

@@ -104,6 +104,7 @@ export interface UpdateLogicDeviceRequest {
 // ============================================================================
 
 export type NodeType =
+  | 'internet'
   | 'controller'
   | 'gateway'
   | 'router'
@@ -153,6 +154,7 @@ export interface DeviceNodeData {
   node: TopologyNodeV2;
   selected: boolean;
   onCollapse: (nodeId: string) => void;
+  onLabelEdit: (nodeId: string, newLabel: string) => void;
 }
 
 export type DeviceFlowNode = Node<DeviceNodeData>;
@@ -186,6 +188,7 @@ export interface TopologyStoreState {
   createLogicDevice: (req: CreateLogicDeviceRequest) => Promise<void>;
   updateLogicDevice: (id: string, req: UpdateLogicDeviceRequest) => Promise<void>;
   deleteLogicDevice: (id: string) => Promise<void>;
+  updateNodeLabel: (nodeId: string, label: string) => Promise<void>;
   setSelectedNodeId: (id: string | null) => void;
   setViewMode: (mode: ViewMode) => void;
   setViewFilter: (filter: TopologyViewFilter, siteFilter?: string) => void;

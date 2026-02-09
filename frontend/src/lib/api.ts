@@ -1070,6 +1070,24 @@ export const topologyV2Api = {
       { method: 'PUT', body: JSON.stringify({ x, y }) }
     ),
 
+  batchUpdatePositions: (positions: Array<{ node_id: string; x: number; y: number }>) =>
+    request<{ ok: boolean; updated_count: number }>(
+      '/topology/nodes/batch-positions',
+      { method: 'PUT', body: JSON.stringify({ positions }) }
+    ),
+
+  updateNodeLabel: (nodeId: string, label: string) =>
+    request<{ ok: boolean; node_id: string; label: string }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/label`,
+      { method: 'PUT', body: JSON.stringify({ label }) }
+    ),
+
+  deleteNodeLabel: (nodeId: string) =>
+    request<{ ok: boolean; node_id: string; reverted: boolean }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/label`,
+      { method: 'DELETE' }
+    ),
+
   updateParent: (nodeId: string, newParentId: string) =>
     request<{ ok: boolean; node_id: string; new_parent_id: string }>(
       `/topology/nodes/${encodeURIComponent(nodeId)}/parent`,

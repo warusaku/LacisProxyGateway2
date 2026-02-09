@@ -158,6 +158,23 @@ pub struct UpdatePositionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct BatchPositionEntry {
+    pub node_id: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchUpdatePositionsRequest {
+    pub positions: Vec<BatchPositionEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateLabelRequest {
+    pub label: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UpdateParentRequest {
     pub new_parent_id: String,
 }
@@ -205,21 +222,35 @@ fn format_mac(mac: &str) -> String {
     }
 }
 
+/// Check if a string looks like a MAC address (hex digits + separators only).
+/// Matches patterns like "1C-53-F9-B7-89-9B", "1C:53:F9:B7:89:9B", "1C53F9B7899B"
+fn looks_like_mac(s: &str) -> bool {
+    let clean: String = s
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect();
+    // Must be exactly 12 hex digits and the original string only contains hex + separators
+    clean.len() == 12
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '-' || c == '.')
+}
+
 /// Build a human-friendly label for client nodes.
-/// Priority: name → hostname → vendor + short MAC → formatted MAC
+/// Priority: name (non-MAC) → hostname (non-MAC) → vendor + short MAC → formatted MAC
 fn client_label(
     name: &Option<String>,
     hostname: &Option<String>,
     vendor: &Option<String>,
     mac: &str,
 ) -> String {
+    // Skip name/hostname if they look like a MAC address (Omada often sets name=MAC)
     if let Some(n) = name {
-        if !n.is_empty() {
+        if !n.is_empty() && !looks_like_mac(n) {
             return n.clone();
         }
     }
     if let Some(h) = hostname {
-        if !h.is_empty() {
+        if !h.is_empty() && !looks_like_mac(h) {
             return h.clone();
         }
     }
@@ -742,6 +773,51 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
         device_count += 1;
     }
 
+    // --- Virtual Internet Node (root of the topology tree) ---
+    // Collect current root node IDs (those without a parent) so we can reparent them
+    let internet_id = "__internet__".to_string();
+    let current_root_ids: Vec<String> = nodes
+        .iter()
+        .filter(|n| n.parent_id.is_none())
+        .map(|n| n.id.clone())
+        .collect();
+
+    nodes.push(RawNode {
+        id: internet_id.clone(),
+        label: "Internet".to_string(),
+        node_type: "internet".to_string(),
+        mac: None,
+        ip: None,
+        source: "lpg".to_string(),
+        parent_id: None,
+        lacis_id: None,
+        candidate_lacis_id: None,
+        product_type: None,
+        network_device_type: None,
+        status: "online".to_string(),
+        metadata: serde_json::json!({}),
+        connection_type: "wired".to_string(),
+        fid: None,
+        facility_name: None,
+    });
+
+    // Reparent existing root nodes under Internet
+    for node in nodes.iter_mut() {
+        if node.id != internet_id && node.parent_id.is_none() {
+            node.parent_id = Some(internet_id.clone());
+        }
+    }
+
+    // Add edges from Internet to former root nodes
+    for root_id in &current_root_ids {
+        edges.push(RawEdge {
+            from: internet_id.clone(),
+            to: root_id.clone(),
+            edge_type: "wired".to_string(),
+            label: None,
+        });
+    }
+
     (nodes, edges, device_count, client_count)
 }
 
@@ -760,6 +836,7 @@ const H_SPACING_CLIENT: f64 = 240.0;
 /// Node height estimate for layout purposes (matches frontend NODE_SIZES roughly)
 fn node_height(node_type: &str) -> f64 {
     match node_type {
+        "internet" => 72.0,
         "controller" | "lpg_server" => 100.0,
         "gateway" | "router" => 80.0,
         "switch" | "ap" | "external" => 64.0,
@@ -776,7 +853,7 @@ fn h_spacing_for(node_type: &str) -> f64 {
 }
 
 fn is_infra(node_type: &str) -> bool {
-    matches!(node_type, "controller" | "gateway" | "router" | "switch" | "ap" | "lpg_server" | "external" | "logic_device")
+    matches!(node_type, "internet" | "controller" | "gateway" | "router" | "switch" | "ap" | "lpg_server" | "external" | "logic_device")
 }
 
 /// Compute the total vertical extent of a subtree rooted at `node_id`.
@@ -1113,6 +1190,7 @@ pub async fn get_topology_v2(
 
     // Load persistent state
     let saved_positions = mongo.get_all_node_positions().await.unwrap_or_default();
+    let custom_labels = mongo.get_all_custom_labels().await.unwrap_or_default();
     let topo_state = mongo.get_topology_state().await.unwrap_or(TopologyStateDoc {
         key: "global".to_string(),
         collapsed_node_ids: Vec::new(),
@@ -1234,9 +1312,15 @@ pub async fn get_topology_v2(
             };
             let desc_count = count_descendants(&n.id, &children_map);
 
+            // Apply custom label if exists, otherwise use auto-generated
+            let label = custom_labels
+                .get(&n.id)
+                .cloned()
+                .unwrap_or_else(|| n.label.clone());
+
             TopologyNodeV2 {
                 id: n.id.clone(),
-                label: n.label.clone(),
+                label,
                 node_type: n.node_type.clone(),
                 mac: n.mac.clone(),
                 ip: n.ip.clone(),
@@ -1356,6 +1440,90 @@ pub async fn update_node_position(
     Ok(Json(serde_json::json!({
         "ok": true,
         "node_id": node_id,
+    })))
+}
+
+/// PUT /api/topology/nodes/batch-positions — batch update node positions
+pub async fn batch_update_positions(
+    State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<BatchUpdatePositionsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
+    let positions: Vec<NodePosition> = req
+        .positions
+        .iter()
+        .map(|e| NodePosition {
+            node_id: e.node_id.clone(),
+            x: e.x,
+            y: e.y,
+            pinned: true,
+        })
+        .collect();
+
+    state
+        .app_state
+        .mongo
+        .batch_upsert_node_positions(&positions)
+        .await
+        .map_err(|e| AppError::InternalError(e))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "updated_count": positions.len(),
+    })))
+}
+
+/// PUT /api/topology/nodes/:id/label — update node custom label
+pub async fn update_node_label(
+    State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
+    Path(node_id): Path<String>,
+    Json(req): Json<UpdateLabelRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
+    let label = req.label.trim();
+    if label.is_empty() || label.len() > 50 {
+        return Err(AppError::BadRequest(
+            "Label must be 1-50 characters".to_string(),
+        ));
+    }
+
+    state
+        .app_state
+        .mongo
+        .upsert_custom_label(&node_id, label)
+        .await
+        .map_err(|e| AppError::InternalError(e))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "node_id": node_id,
+        "label": label,
+    })))
+}
+
+/// DELETE /api/topology/nodes/:id/label — remove custom label (revert)
+pub async fn delete_node_label(
+    State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
+    Path(node_id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
+    state
+        .app_state
+        .mongo
+        .delete_custom_label(&node_id)
+        .await
+        .map_err(|e| AppError::InternalError(e))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "node_id": node_id,
+        "reverted": true,
     })))
 }
 

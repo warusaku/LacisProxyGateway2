@@ -30,7 +30,8 @@ const nodeTypes: NodeTypes = {
 function toFlowNodes(
   topoNodes: TopologyNodeV2[],
   selectedId: string | null,
-  onCollapse: (id: string) => void
+  onCollapse: (id: string) => void,
+  onLabelEdit: (nodeId: string, newLabel: string) => void
 ): Node<DeviceNodeData>[] {
   return topoNodes.map(n => ({
     id: n.id,
@@ -40,6 +41,7 @@ function toFlowNodes(
       node: n,
       selected: n.id === selectedId,
       onCollapse,
+      onLabelEdit,
     },
     draggable: true,
   }));
@@ -78,13 +80,19 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
   const updateNodePosition = useTopologyStore(s => s.updateNodePosition);
   const toggleCollapse = useTopologyStore(s => s.toggleCollapse);
 
+  const updateNodeLabel = useTopologyStore(s => s.updateNodeLabel);
+
   const onCollapse = useCallback((id: string) => {
     toggleCollapse(id);
   }, [toggleCollapse]);
 
+  const onLabelEdit = useCallback((nodeId: string, newLabel: string) => {
+    updateNodeLabel(nodeId, newLabel);
+  }, [updateNodeLabel]);
+
   const flowNodes = useMemo(
-    () => toFlowNodes(topoNodes, selectedNodeId, onCollapse),
-    [topoNodes, selectedNodeId, onCollapse]
+    () => toFlowNodes(topoNodes, selectedNodeId, onCollapse, onLabelEdit),
+    [topoNodes, selectedNodeId, onCollapse, onLabelEdit]
   );
   const flowEdges = useMemo(() => toFlowEdges(topoEdges), [topoEdges]);
 
@@ -136,8 +144,9 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
             if (!data) return '#333';
             const status = data.node.status;
             if (status === 'online' || status === 'active') return '#10B981';
-            if (status === 'offline' || status === 'inactive') return '#6B7280';
-            return '#F59E0B';
+            if (status === 'offline' || status === 'inactive') return '#EF4444';
+            if (status === 'warning') return '#F59E0B';
+            return '#9CA3AF';
           }}
           maskColor="rgba(0,0,0,0.7)"
           style={{ background: 'rgba(10,10,10,0.9)', border: '1px solid rgba(51,51,51,0.5)', borderRadius: 8 }}

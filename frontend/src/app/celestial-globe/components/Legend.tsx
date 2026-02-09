@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
+  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
   Info, X,
   type LucideIcon,
 } from 'lucide-react';
@@ -10,6 +10,7 @@ import type { NodeType } from '../types';
 import { NODE_COLORS, STATUS_COLORS, EDGE_STYLES } from '../constants';
 
 const DEVICE_TYPES: { type: NodeType; label: string; icon: LucideIcon }[] = [
+  { type: 'internet', label: 'Internet', icon: Cloud },
   { type: 'controller', label: 'Controller', icon: Globe },
   { type: 'gateway', label: 'Gateway', icon: Globe },
   { type: 'router', label: 'Router', icon: Globe },

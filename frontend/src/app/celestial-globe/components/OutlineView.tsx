@@ -2,18 +2,19 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import {
-  Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
-  ChevronRight, ChevronDown, Search,
+  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
+  ChevronRight, ChevronDown, Search, AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
 import { useTopologyStore } from '../stores/useTopologyStore';
 import type { TopologyNodeV2, NodeType } from '../types';
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
+  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
 };
 
 const ICON_FOR_TYPE: Record<NodeType, string> = {
+  internet: 'Cloud',
   controller: 'Globe',
   gateway: 'Globe',
   router: 'Globe',
@@ -80,6 +81,14 @@ export function OutlineView() {
   const tree = useMemo(() => buildTree(nodes), [nodes]);
   const filteredTree = useMemo(() => filterTree(tree, searchQuery), [tree, searchQuery]);
 
+  // Statistics
+  const stats = useMemo(() => {
+    const online = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
+    const offline = nodes.filter(n => n.status === 'offline' || n.status === 'inactive').length;
+    const total = nodes.length;
+    return { total, online, offline };
+  }, [nodes]);
+
   // Auto-expand all on search
   useMemo(() => {
     if (searchQuery) {
@@ -122,6 +131,20 @@ export function OutlineView() {
         </div>
       </div>
 
+      {/* Stats bar */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        padding: '6px 12px',
+        borderBottom: '1px solid rgba(51,51,51,0.5)',
+        fontSize: 10,
+        color: '#6B7280',
+      }}>
+        <span>{stats.total} nodes</span>
+        <span style={{ color: '#10B981' }}>{stats.online} online</span>
+        <span style={{ color: '#EF4444' }}>{stats.offline} offline</span>
+      </div>
+
       {/* Tree */}
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 4px' }}>
         {filteredTree.map(tn => (
@@ -159,6 +182,8 @@ function TreeItem({
   const hasChildren = children.length > 0;
   const isExpanded = expandedIds.has(node.id);
   const isSelected = node.id === selectedId;
+  // Orphan: has parent_id but parent not visible (rendered as root)
+  const isOrphan = depth === 0 && !!node.parent_id && node.node_type !== 'internet';
 
   const nodeType = node.node_type as NodeType;
   const iconName = ICON_FOR_TYPE[nodeType] || 'Monitor';
@@ -185,6 +210,11 @@ function TreeItem({
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {node.label}
         </span>
+        {isOrphan && (
+          <span title="Orphan node (parent not visible)" style={{ display: 'flex', flexShrink: 0 }}>
+            <AlertTriangle size={10} style={{ color: '#F59E0B' }} />
+          </span>
+        )}
         <span className={`cg-status-dot cg-status-dot--${node.status}`} />
       </div>
       {hasChildren && isExpanded && (

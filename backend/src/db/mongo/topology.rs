@@ -11,6 +11,7 @@ use super::MongoDb;
 const COLLECTION_POSITIONS: &str = "cg_node_positions";
 const COLLECTION_LOGIC_DEVICES: &str = "cg_logic_devices";
 const COLLECTION_STATE: &str = "cg_state";
+const COLLECTION_CUSTOM_LABELS: &str = "cg_custom_labels";
 
 // ============================================================================
 // Data models
@@ -229,6 +230,71 @@ impl MongoDb {
             .await
             .map_err(|e| format!("Failed to update logic device: {}", e))?;
         Ok(result.modified_count > 0)
+    }
+
+    // ========================================================================
+    // Custom Labels
+    // ========================================================================
+
+    /// Get all custom labels as HashMap<node_id, label>
+    pub async fn get_all_custom_labels(&self) -> Result<std::collections::HashMap<String, String>, String> {
+        let collection = self.db.collection::<Document>(COLLECTION_CUSTOM_LABELS);
+        let mut cursor = collection
+            .find(None, None)
+            .await
+            .map_err(|e| format!("Failed to query custom labels: {}", e))?;
+
+        let mut labels = std::collections::HashMap::new();
+        while {
+            use futures::StreamExt;
+            match cursor.next().await {
+                Some(Ok(doc)) => {
+                    if let (Some(id), Some(label)) = (
+                        doc.get_str("node_id").ok(),
+                        doc.get_str("custom_label").ok(),
+                    ) {
+                        labels.insert(id.to_string(), label.to_string());
+                    }
+                    true
+                }
+                Some(Err(e)) => {
+                    tracing::warn!("Error reading custom label: {}", e);
+                    true
+                }
+                None => false,
+            }
+        } {}
+        Ok(labels)
+    }
+
+    /// Set or remove a custom label for a node
+    pub async fn upsert_custom_label(&self, node_id: &str, label: &str) -> Result<(), String> {
+        let collection = self.db.collection::<Document>(COLLECTION_CUSTOM_LABELS);
+        let filter = doc! { "node_id": node_id };
+        let update = doc! {
+            "$set": {
+                "node_id": node_id,
+                "custom_label": label,
+            }
+        };
+        let opts = mongodb::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
+        collection
+            .update_one(filter, update, Some(opts))
+            .await
+            .map_err(|e| format!("Failed to upsert custom label: {}", e))?;
+        Ok(())
+    }
+
+    /// Remove a custom label (revert to auto-generated label)
+    pub async fn delete_custom_label(&self, node_id: &str) -> Result<(), String> {
+        let collection = self.db.collection::<Document>(COLLECTION_CUSTOM_LABELS);
+        collection
+            .delete_one(doc! { "node_id": node_id }, None)
+            .await
+            .map_err(|e| format!("Failed to delete custom label: {}", e))?;
+        Ok(())
     }
 
     /// Delete a logic device
