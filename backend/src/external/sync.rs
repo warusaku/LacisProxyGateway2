@@ -10,6 +10,7 @@ use crate::db::mongo::MongoDb;
 use crate::db::mysql::MySqlDb;
 use crate::external::manager::{DeviceProtocol, ExternalDeviceManager};
 use crate::external::mercury::MercuryClient;
+use crate::node_order::NodeOrderIngester;
 use crate::user_object_ingester::UserObjectIngester;
 
 /// Background synchronization service for external devices
@@ -17,15 +18,18 @@ pub struct ExternalSyncer {
     manager: Arc<ExternalDeviceManager>,
     mongo: Arc<MongoDb>,
     ingester: UserObjectIngester,
+    node_order_ingester: NodeOrderIngester,
 }
 
 impl ExternalSyncer {
     pub fn new(manager: Arc<ExternalDeviceManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
         let ingester = UserObjectIngester::new(mongo.clone(), mysql);
+        let node_order_ingester = NodeOrderIngester::new(mongo.clone());
         Self {
             manager,
             mongo,
             ingester,
+            node_order_ingester,
         }
     }
 
@@ -123,6 +127,15 @@ impl ExternalSyncer {
         if let Err(e) = self.ingester.ingest_external(device_id).await {
             tracing::warn!(
                 "[ExternalSync] UserObjectDetail ingestion failed for device {}: {}",
+                device_id,
+                e
+            );
+        }
+
+        // Ingest into cg_node_order SSoT (CelestialGlobe topology)
+        if let Err(e) = self.node_order_ingester.ingest_external(device_id).await {
+            tracing::warn!(
+                "[ExternalSync] NodeOrder ingestion failed for device {}: {}",
                 device_id,
                 e
             );

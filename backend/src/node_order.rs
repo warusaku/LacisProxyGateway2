@@ -148,6 +148,15 @@ impl NodeOrderIngester {
             .find(|d| d.device_type == "gateway")
             .map(|d| normalize_mac(&d.mac));
 
+        // Find switch MAC(s) for AP parent inference.
+        // Omada SDN topology: Gateway → Switch → AP (via PoE).
+        // The OpenAPI does not expose device-to-device uplink info, so we infer:
+        //   AP.parent = first switch in the same controller (if exists)
+        let switch_mac = devices
+            .iter()
+            .find(|d| d.device_type == "switch")
+            .map(|d| normalize_mac(&d.mac));
+
         // Build device MAC lookup for client parent resolution
         let dev_macs: std::collections::HashMap<String, String> = devices
             .iter()
@@ -161,8 +170,28 @@ impl NodeOrderIngester {
             let mac = normalize_mac(&dev.mac);
             let (parent_mac, depth) = if dev.device_type == "gateway" {
                 ("INTERNET".to_string(), 1)
+            } else if dev.device_type == "switch" {
+                // Switch → parent is gateway
+                (
+                    gateway_mac
+                        .clone()
+                        .unwrap_or_else(|| "INTERNET".to_string()),
+                    if gateway_mac.is_some() { 2 } else { 1 },
+                )
+            } else if dev.device_type == "ap" {
+                // AP → parent is switch (PoE connection), fallback to gateway
+                if let Some(ref sw) = switch_mac {
+                    (sw.clone(), if gateway_mac.is_some() { 3 } else { 2 })
+                } else {
+                    (
+                        gateway_mac
+                            .clone()
+                            .unwrap_or_else(|| "INTERNET".to_string()),
+                        if gateway_mac.is_some() { 2 } else { 1 },
+                    )
+                }
             } else {
-                // Switch/AP → parent is gateway (or INTERNET if no gateway)
+                // Unknown device type → gateway child
                 (
                     gateway_mac
                         .clone()
@@ -255,13 +284,16 @@ impl NodeOrderIngester {
                     .unwrap_or_else(|| "INTERNET".to_string())
             });
 
-            // Calculate depth based on parent
+            // Calculate depth based on parent type
             let parent_depth = if parent_mac == "INTERNET" {
                 0
             } else if Some(&parent_mac) == gateway_mac.as_ref() {
-                1
+                1 // Gateway depth
+            } else if Some(&parent_mac) == switch_mac.as_ref() {
+                2 // Switch depth
             } else {
-                2 // AP/Switch depth
+                // AP depth: 3 if under switch, 2 otherwise
+                if switch_mac.is_some() { 3 } else { 2 }
             };
 
             let conn_type = if cli.wireless { "wireless" } else { "wired" };
@@ -373,6 +405,105 @@ impl NodeOrderIngester {
             order_counter
         );
         Ok(())
+    }
+
+    /// Repair existing Omada device parent relationships.
+    /// Fixes APs that were incorrectly set with gateway as parent.
+    /// Called on startup to correct data from before the switch-heuristic fix.
+    pub async fn repair_omada_device_parents(&self) -> Result<u32, String> {
+        // Load all Omada devices from MongoDB
+        let all_devices = self
+            .mongo
+            .get_omada_devices(None, None)
+            .await
+            .unwrap_or_default();
+
+        // Group devices by controller_id
+        let mut devices_by_ctrl: std::collections::HashMap<String, Vec<_>> =
+            std::collections::HashMap::new();
+        for dev in &all_devices {
+            devices_by_ctrl
+                .entry(dev.controller_id.clone())
+                .or_default()
+                .push(dev);
+        }
+
+        let mut fixed_count = 0u32;
+
+        for (controller_id, devices) in &devices_by_ctrl {
+            let gateway_mac = devices
+                .iter()
+                .find(|d| d.device_type == "gateway")
+                .map(|d| normalize_mac(&d.mac));
+
+            let switch_mac = devices
+                .iter()
+                .find(|d| d.device_type == "switch")
+                .map(|d| normalize_mac(&d.mac));
+
+            let Some(ref sw_mac) = switch_mac else {
+                continue; // No switch → nothing to fix
+            };
+
+            // Find APs that should be under the switch but are under the gateway
+            for dev in devices {
+                if dev.device_type != "ap" {
+                    continue;
+                }
+
+                let mac = normalize_mac(&dev.mac);
+                let existing = self.mongo.get_node_order_by_mac(&mac).await;
+                if let Ok(Some(entry)) = existing {
+                    // Only fix if parent is gateway (not manually reparented to something else)
+                    if Some(&entry.parent_mac) == gateway_mac.as_ref() {
+                        let new_depth = if gateway_mac.is_some() { 3 } else { 2 };
+                        let updated = self
+                            .mongo
+                            .update_node_order_parent(&mac, sw_mac, new_depth)
+                            .await?;
+                        if updated {
+                            tracing::info!(
+                                "[NodeOrder] Repaired AP {} parent: {} → {} (controller {})",
+                                mac,
+                                entry.parent_mac,
+                                sw_mac,
+                                controller_id
+                            );
+                            fixed_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // Also fix clients under APs — their depth needs adjustment
+            let ap_macs: std::collections::HashSet<String> = devices
+                .iter()
+                .filter(|d| d.device_type == "ap")
+                .map(|d| normalize_mac(&d.mac))
+                .collect();
+
+            let all_nodes = self.mongo.get_all_node_order().await.unwrap_or_default();
+            for node in &all_nodes {
+                if ap_macs.contains(&node.parent_mac) && node.depth != 4 {
+                    // Client under AP should be depth 4 (INTERNET=0, GW=1, SW=2, AP=3, CLI=4)
+                    if gateway_mac.is_some() {
+                        let _ = self
+                            .mongo
+                            .update_node_order_parent(&node.mac, &node.parent_mac, 4)
+                            .await;
+                    }
+                }
+            }
+        }
+
+        if fixed_count > 0 {
+            tracing::info!(
+                "[NodeOrder] Repaired {} AP device parent relationships",
+                fixed_count
+            );
+        }
+
+        Ok(fixed_count)
     }
 
     /// Ingest OpenWrt router and its clients into nodeOrder.
@@ -711,16 +842,44 @@ pub async fn migrate_to_node_order(mongo: &Arc<MongoDb>) -> Result<(), String> {
         }
     }
 
+    // Find switch MAC per controller (for AP parent inference)
+    let mut switch_by_ctrl: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for dev in &omada_devices {
+        if dev.device_type == "switch" {
+            switch_by_ctrl
+                .entry(dev.controller_id.clone())
+                .or_insert_with(|| normalize_mac(&dev.mac));
+        }
+    }
+
     let mut order = 0u32;
     for dev in &omada_devices {
         let mac = normalize_mac(&dev.mac);
         let old_id = format!("omada:{}:dev:{}", dev.controller_id, dev.mac);
         id_migration.push((old_id.clone(), mac.clone()));
 
+        let gw = gateway_by_ctrl.get(&dev.controller_id);
+        let sw = switch_by_ctrl.get(&dev.controller_id);
+
         let (parent_mac, depth) = if dev.device_type == "gateway" {
             ("INTERNET".to_string(), 1)
+        } else if dev.device_type == "switch" {
+            (
+                gw.cloned().unwrap_or_else(|| "INTERNET".to_string()),
+                if gw.is_some() { 2 } else { 1 },
+            )
+        } else if dev.device_type == "ap" {
+            // AP → parent is switch (PoE), fallback to gateway
+            if let Some(sw_mac) = sw {
+                (sw_mac.clone(), if gw.is_some() { 3 } else { 2 })
+            } else {
+                (
+                    gw.cloned().unwrap_or_else(|| "INTERNET".to_string()),
+                    if gw.is_some() { 2 } else { 1 },
+                )
+            }
         } else {
-            let gw = gateway_by_ctrl.get(&dev.controller_id);
             (
                 gw.cloned().unwrap_or_else(|| "INTERNET".to_string()),
                 if gw.is_some() { 2 } else { 1 },
@@ -812,9 +971,16 @@ pub async fn migrate_to_node_order(mongo: &Arc<MongoDb>) -> Result<(), String> {
         let parent_depth = if parent_mac == "INTERNET" {
             0
         } else if gateway_by_ctrl.values().any(|gw| gw == &parent_mac) {
-            1
+            1 // Gateway depth
+        } else if switch_by_ctrl.values().any(|sw| sw == &parent_mac) {
+            2 // Switch depth
         } else {
-            2
+            // AP depth: 3 if switch exists in this controller, 2 otherwise
+            if switch_by_ctrl.contains_key(&cli.controller_id) {
+                3
+            } else {
+                2
+            }
         };
         let conn_type = if cli.wireless { "wireless" } else { "wired" };
 

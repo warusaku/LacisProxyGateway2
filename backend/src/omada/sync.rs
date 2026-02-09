@@ -8,6 +8,7 @@ use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
 use crate::db::mysql::MySqlDb;
+use crate::node_order::NodeOrderIngester;
 use crate::omada::manager::OmadaManager;
 use crate::user_object_ingester::UserObjectIngester;
 
@@ -16,15 +17,18 @@ pub struct OmadaSyncer {
     manager: Arc<OmadaManager>,
     mongo: Arc<MongoDb>,
     ingester: UserObjectIngester,
+    node_order_ingester: NodeOrderIngester,
 }
 
 impl OmadaSyncer {
     pub fn new(manager: Arc<OmadaManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
         let ingester = UserObjectIngester::new(mongo.clone(), mysql);
+        let node_order_ingester = NodeOrderIngester::new(mongo.clone());
         Self {
             manager,
             mongo,
             ingester,
+            node_order_ingester,
         }
     }
 
@@ -165,6 +169,15 @@ impl OmadaSyncer {
         if let Err(e) = self.ingester.ingest_omada(controller_id).await {
             tracing::warn!(
                 "[OmadaSync] UserObjectDetail ingestion failed for controller {}: {}",
+                controller_id,
+                e
+            );
+        }
+
+        // 6. Ingest into cg_node_order SSoT (CelestialGlobe topology)
+        if let Err(e) = self.node_order_ingester.ingest_omada(controller_id).await {
+            tracing::warn!(
+                "[OmadaSync] NodeOrder ingestion failed for controller {}: {}",
                 controller_id,
                 e
             );

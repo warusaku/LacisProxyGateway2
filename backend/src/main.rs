@@ -129,6 +129,19 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("NodeOrder migration failed (non-fatal): {}", e),
     }
 
+    // Repair Omada device parent relationships (AP→Switch heuristic)
+    {
+        let ingester = node_order::NodeOrderIngester::new(app_state.mongo.clone());
+        match ingester.repair_omada_device_parents().await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!("NodeOrder: repaired {} AP device parents", count);
+                }
+            }
+            Err(e) => tracing::warn!("NodeOrder repair failed (non-fatal): {}", e),
+        }
+    }
+
     // Migrate cg_node_order → user_object_detail (one-time, if user_object_detail is empty)
     match user_object_ingester::migrate_to_user_object_detail(&app_state.mongo).await {
         Ok(()) => tracing::debug!("UserObjectDetail migration check complete"),

@@ -8,6 +8,7 @@ use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
 use crate::db::mysql::MySqlDb;
+use crate::node_order::NodeOrderIngester;
 use crate::openwrt::manager::OpenWrtManager;
 use crate::user_object_ingester::UserObjectIngester;
 
@@ -16,15 +17,18 @@ pub struct OpenWrtSyncer {
     manager: Arc<OpenWrtManager>,
     mongo: Arc<MongoDb>,
     ingester: UserObjectIngester,
+    node_order_ingester: NodeOrderIngester,
 }
 
 impl OpenWrtSyncer {
     pub fn new(manager: Arc<OpenWrtManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
         let ingester = UserObjectIngester::new(mongo.clone(), mysql);
+        let node_order_ingester = NodeOrderIngester::new(mongo.clone());
         Self {
             manager,
             mongo,
             ingester,
+            node_order_ingester,
         }
     }
 
@@ -112,6 +116,15 @@ impl OpenWrtSyncer {
         if let Err(e) = self.ingester.ingest_openwrt(router_id).await {
             tracing::warn!(
                 "[OpenWrtSync] UserObjectDetail ingestion failed for router {}: {}",
+                router_id,
+                e
+            );
+        }
+
+        // 6. Ingest into cg_node_order SSoT (CelestialGlobe topology)
+        if let Err(e) = self.node_order_ingester.ingest_openwrt(router_id).await {
+            tracing::warn!(
+                "[OpenWrtSync] NodeOrder ingestion failed for router {}: {}",
                 router_id,
                 e
             );
