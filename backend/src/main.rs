@@ -148,6 +148,28 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("UserObjectDetail migration failed (non-fatal): {}", e),
     }
 
+    // Repair user_object_detail AP parent relationships (AP→Switch heuristic)
+    {
+        let uod_ingester = user_object_ingester::UserObjectIngester::new(
+            app_state.mongo.clone(),
+            app_state.mysql.clone(),
+        );
+        match uod_ingester.repair_omada_device_parents_uod().await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(
+                        "UserObjectDetail: repaired {} AP device parents",
+                        count
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(
+                "UserObjectDetail repair failed (non-fatal): {}",
+                e
+            ),
+        }
+    }
+
     // Ensure device_state_history table exists
     match app_state.mysql.ensure_device_state_history_table().await {
         Ok(()) => tracing::debug!("device_state_history table ready"),

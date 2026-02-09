@@ -159,19 +159,29 @@ impl UserObjectIngester {
         }
     }
 
-    /// Helper to resolve parent_id for infra device.
-    /// Returns (parent_id, gateway_id for this controller)
-    fn resolve_infra_parent(
+    /// Helper to resolve parent_id for Omada infra device.
+    /// Applies Switch→AP heuristic: APs are children of the Switch (PoE), not Gateway.
+    fn resolve_omada_infra_parent(
         &self,
-        is_gateway: bool,
+        device_type: &str,
         gateway_lacis_id: &Option<String>,
+        switch_lacis_id: &Option<String>,
     ) -> String {
-        if is_gateway {
-            "INTERNET".to_string()
-        } else {
-            gateway_lacis_id
-                .clone()
-                .unwrap_or_else(|| "INTERNET".to_string())
+        match device_type {
+            "gateway" => "INTERNET".to_string(),
+            "ap" => {
+                // AP connects to Switch via PoE — use switch as parent if available
+                switch_lacis_id
+                    .clone()
+                    .or_else(|| gateway_lacis_id.clone())
+                    .unwrap_or_else(|| "INTERNET".to_string())
+            }
+            _ => {
+                // switch, other infra → parent is gateway
+                gateway_lacis_id
+                    .clone()
+                    .unwrap_or_else(|| "INTERNET".to_string())
+            }
         }
     }
 
@@ -209,6 +219,14 @@ impl UserObjectIngester {
             },
         );
 
+        // Find switch LacisID for AP parent inference (PoE heuristic: AP → Switch → Gateway)
+        let switch_lacis_id = devices.iter().find(|d| d.device_type == "switch").map(
+            |d| {
+                let mac = normalize_mac(&d.mac);
+                compute_infra_id(&d.product_type, &mac, &d.network_device_type)
+            },
+        );
+
         // Build device MAC → LacisID lookup for client parent resolution
         let dev_mac_to_lacis_id: std::collections::HashMap<String, String> = devices
             .iter()
@@ -228,7 +246,7 @@ impl UserObjectIngester {
             let doc_id = compute_infra_id(&dev.product_type, &mac, &dev.network_device_type);
 
             let parent_id =
-                self.resolve_infra_parent(dev.device_type == "gateway", &gateway_lacis_id);
+                self.resolve_omada_infra_parent(&dev.device_type, &gateway_lacis_id, &switch_lacis_id);
 
             // Resolve fid from controller sites
             let site = ctrl.and_then(|c| c.sites.iter().find(|s| s.site_id == dev.site_id));
@@ -426,6 +444,73 @@ impl UserObjectIngester {
             order_counter
         );
         Ok(())
+    }
+
+    /// Repair existing user_object_detail entries where APs have gateway as parent
+    /// when a switch exists in the same controller. Uses update_user_object_detail_parent()
+    /// which directly sets parent_id (bypassing the upsert volatile-only rule).
+    pub async fn repair_omada_device_parents_uod(&self) -> Result<u32, String> {
+        let entries = self.mongo.get_all_user_object_details().await?;
+
+        // Find AP entries with source=omada
+        let aps: Vec<_> = entries
+            .iter()
+            .filter(|e| e.node_type == "ap" && e.source == "omada")
+            .collect();
+
+        if aps.is_empty() {
+            return Ok(0);
+        }
+
+        // Find switch entries with source=omada
+        let switches: Vec<_> = entries
+            .iter()
+            .filter(|e| e.node_type == "switch" && e.source == "omada")
+            .collect();
+
+        if switches.is_empty() {
+            return Ok(0); // No switch → nothing to repair
+        }
+
+        // Find gateway entry _ids for comparison
+        let gateway_ids: std::collections::HashSet<String> = entries
+            .iter()
+            .filter(|e| e.node_type == "gateway")
+            .map(|e| e.id.clone())
+            .collect();
+
+        // For each AP whose parent is a gateway, reparent to switch
+        // Group by controller_id from metadata to match AP→Switch within same controller
+        let mut repaired = 0u32;
+        for ap in &aps {
+            if !gateway_ids.contains(&ap.parent_id) {
+                continue; // Already has correct parent (not gateway)
+            }
+
+            // Extract controller_id from AP metadata
+            let ap_ctrl_id = ap.metadata.get("controller_id").and_then(|v| v.as_str());
+
+            // Find switch in same controller
+            let matching_switch = switches.iter().find(|sw| {
+                let sw_ctrl_id = sw.metadata.get("controller_id").and_then(|v| v.as_str());
+                ap_ctrl_id.is_some() && ap_ctrl_id == sw_ctrl_id
+            });
+
+            if let Some(sw) = matching_switch {
+                tracing::info!(
+                    "[UserObjectIngester] Repairing AP {} parent: {} → {}",
+                    ap.id,
+                    ap.parent_id,
+                    sw.id
+                );
+                self.mongo
+                    .update_user_object_detail_parent(&ap.id, &sw.id)
+                    .await?;
+                repaired += 1;
+            }
+        }
+
+        Ok(repaired)
     }
 
     /// Ingest OpenWrt router and its clients into user_object_detail.
