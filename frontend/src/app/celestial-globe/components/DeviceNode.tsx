@@ -1,290 +1,271 @@
-'use client';
-
 /**
- * DeviceNode Component
+ * DeviceNode Component — mobes2.0 DeviceNodeWithLOD.tsx 忠実再現
  *
- * ReactFlow カスタムノード — ネットワークデバイス表示
- * SSOT: mobes2.0 DeviceNode.tsx を LPG2 ダークテーマ向けに移植
+ * Container: mindmap-node p-3 rounded-lg shadow-lg
+ * LOD: CSS hidden で zoom に応じてテキスト切替
+ *   - isMinimalZoom (zoom < 0.4): テキスト非表示
+ *   - isBasicZoom (0.4 ≤ zoom < 0.8): アイコン非表示
+ *   - isFullZoom (zoom ≥ 0.8): 全詳細表示
  *
- * mobes2.0 構造準拠:
- *   - Handle target (top) + Handle source (bottom)
- *   - ステータス色でアイコン円形背景
- *   - タイプ別背景色（LPG2 dark theme 向けに調整）
- *   - インラインラベル編集（ダブルクリック→Enter/Escape）
- *   - Collapse バッジ
- *
- * Handle 方向ルール:
- *   - target (top): 親からのエッジを受信
- *   - source (bottom): 子へのエッジを送出
- *   → 親→子の一方向フローを強制（InternetNode は source のみ）
+ * LPG2で省略: VLAN, Site, aranea, PoE, D&D, bucket, useReportNodeDimensions
  */
 
-import { memo, useCallback, useState, useRef, useEffect } from 'react';
+'use client';
+
+import { memo, useState, useCallback } from 'react';
 import { Handle, Position } from 'reactflow';
+import type { NodeProps } from 'reactflow';
+import type { DeviceNodeData, TopologyNodeV2 } from '../types';
+import { NetworkDeviceIcon } from './icons';
+import { Tooltip } from './Tooltip';
+import { useZoom } from './deviceNode/hooks';
 import {
-  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
-  type LucideIcon,
-} from 'lucide-react';
-import type { DeviceNodeData, NodeType } from '../types';
-import { NODE_COLORS, STATUS_COLORS } from '../constants';
+  resolveComputedStatus,
+  getStatusColor,
+  getStatusRingColor,
+  isOfflineStatus,
+  isGateway,
+  getSourceBadge,
+  STATUS_BADGE_MAP,
+  type ComputedStatus,
+} from './deviceNode/helpers';
 
-// mobes2.0 準拠: デバイスタイプ→アイコンマッピング
-const ICON_MAP: Record<string, LucideIcon> = {
-  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
-};
+// ============================================================================
+// DeviceNode
+// ============================================================================
 
-const ICON_FOR_TYPE: Record<NodeType, string> = {
-  internet:     'Cloud',
-  controller:   'Globe',
-  gateway:      'Globe',
-  router:       'Globe',
-  switch:       'GitBranch',
-  ap:           'Wifi',
-  client:       'Monitor',
-  wg_peer:      'Shield',
-  logic_device: 'Box',
-  external:     'HardDrive',
-  lpg_server:   'Server',
-};
+export const DeviceNode = memo(({ data, selected }: NodeProps<DeviceNodeData>) => {
+  const { node, onCollapse, onLabelEdit } = data;
+  const zoom = useZoom();
 
-const LABEL_MAX_LENGTH = 50;
+  // LOD levels — mobes2.0 L58-62
+  const isMinimalZoom = zoom < 0.4;
+  const isBasicZoom = zoom >= 0.4 && zoom < 0.8;
+  const isFullZoom = zoom >= 0.8;
 
-function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
-  const { node, selected, onCollapse, onLabelEdit } = data;
-  const nodeType = node.node_type as NodeType;
-  const colors = NODE_COLORS[nodeType] || NODE_COLORS.client;
-  const iconName = ICON_FOR_TYPE[nodeType] || 'Monitor';
-  const IconComponent = ICON_MAP[iconName] || Monitor;
-  const statusColor = STATUS_COLORS[node.status] || STATUS_COLORS.unknown;
+  const computedStatus = resolveComputedStatus(node);
+  const statusColor = getStatusColor(computedStatus);
+  const statusRing = getStatusRingColor(computedStatus);
+  const offline = isOfflineStatus(computedStatus);
+  const gatewayNode = isGateway(node);
+  const statusBadge = STATUS_BADGE_MAP[computedStatus];
+  const sourceBadge = getSourceBadge(node.source);
+  const isLogicDevice = node.node_type === 'logic_device';
 
-  const isOffline = node.status === 'offline' || node.status === 'inactive' || node.status === 'StaticOffline';
-
-  // Inline label editing state
+  // Label editing state
   const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState('');
-  const [shaking, setShaking] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [editLabel, setEditLabel] = useState(node.label);
 
+  const handleDoubleClick = useCallback(() => {
+    if (!isFullZoom) return;
+    setEditLabel(node.label);
+    setEditing(true);
+  }, [isFullZoom, node.label]);
+
+  const handleEditSubmit = useCallback(() => {
+    if (editLabel.trim() && editLabel.trim() !== node.label) {
+      onLabelEdit(node.id, editLabel.trim());
+    }
+    setEditing(false);
+  }, [editLabel, node.label, node.id, onLabelEdit]);
+
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleEditSubmit();
+    if (e.key === 'Escape') setEditing(false);
+  }, [handleEditSubmit]);
+
+  // Collapse handler
   const handleCollapseClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onCollapse(node.id);
-  }, [node.id, onCollapse]);
+  }, [onCollapse, node.id]);
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (node.id === '__internet__') return;
-    setEditValue(node.label);
-    setEditing(true);
-  }, [node.id, node.label]);
+  // ============================================================================
+  // Container classes — mobes2.0 L350-398
+  // ============================================================================
 
-  const commitEdit = useCallback(() => {
-    const trimmed = editValue.trim();
-    if (!trimmed || trimmed.length > LABEL_MAX_LENGTH) {
-      setShaking(true);
-      setTimeout(() => setShaking(false), 400);
-      return;
-    }
-    if (trimmed !== node.label) {
-      onLabelEdit(node.id, trimmed);
-    }
-    setEditing(false);
-  }, [editValue, node.id, node.label, onLabelEdit]);
-
-  const cancelEdit = useCallback(() => {
-    setEditing(false);
-  }, []);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    e.stopPropagation();
-    if (e.key === 'Enter') {
-      commitEdit();
-    } else if (e.key === 'Escape') {
-      cancelEdit();
-    }
-  }, [commitEdit, cancelEdit]);
-
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editing]);
-
-  // mobes2.0 準拠: ノード幅（インフラ=200, クライアント=160）
-  const isClient = nodeType === 'client' || nodeType === 'wg_peer';
-  const nodeWidth = isClient ? 160 : 200;
+  const containerClasses = [
+    'mindmap-node group relative rounded-lg shadow-lg p-3 transition-all',
+    // Selection
+    selected ? 'mindmap-selection-pulse-strong ring-2 ring-primary-400/60' : '',
+    // Opacity for offline
+    offline ? 'opacity-70' : '',
+    // LogicDevice: dashed border + teal gradient
+    isLogicDevice
+      ? 'border-2 border-dashed border-teal-500/50 bg-gradient-to-br from-teal-950/40 via-dark-900 to-dark-900'
+      : 'border border-dark-700 bg-dark-900/95',
+  ].filter(Boolean).join(' ');
 
   return (
-    <div
-      className={`cg-node ${selected ? 'cg-node--selected' : ''} ${isOffline ? 'cg-node--offline' : ''}`}
-      style={{
-        width: nodeWidth,
-        background: `linear-gradient(135deg, ${colors.bg}18, ${colors.bg}30)`,
-        border: `${selected ? 2.5 : 1.5}px solid ${selected ? '#3B82F6' : isOffline ? '#4B5563' : colors.border}`,
-        borderRadius: 8,
-        padding: '10px 12px',
-        backdropFilter: 'blur(12px)',
-        position: 'relative',
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-        boxShadow: selected ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 1px 4px rgba(0, 0, 0, 0.3)',
-      }}
-    >
-      {/* Handle target (left) — 親からのエッジ受信（左→右ツリー） */}
+    <>
+      {/* Target handle (left) */}
       <Handle
         type="target"
         position={Position.Left}
-        style={{ background: statusColor, width: 8, height: 8 }}
+        className="!w-3 !h-3 !bg-gray-400 dark:!bg-gray-600 !border-2 !border-white dark:!border-dark-100"
       />
 
-      {/* Header: icon circle + label + type */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {/* mobes2.0 準拠: ステータス色の円形背景 */}
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: isOffline ? '#4B5563' : statusColor,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <IconComponent size={14} style={{ color: '#FFFFFF' }} />
+      <div className={containerClasses} style={{ minWidth: isMinimalZoom ? 40 : 160 }}>
+        {/* Badge area — mobes2.0 L399-487 */}
+        <div className="absolute -top-2 right-2 flex items-center gap-1">
+          {/* Status badge (STATIC/MANUAL) */}
+          {statusBadge && !isMinimalZoom && (
+            <span
+              className={`
+                px-1.5 py-0.5 text-[9px] font-bold rounded border
+                ${statusBadge.bgClass} ${statusBadge.textClass} ${statusBadge.borderClass}
+              `}
+            >
+              {statusBadge.label}
+            </span>
+          )}
+          {/* Gateway badge */}
+          {gatewayNode && !isMinimalZoom && (
+            <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
+              GW
+            </span>
+          )}
         </div>
 
-        {/* Label + type */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {editing ? (
-            <input
-              ref={inputRef}
-              type="text"
-              value={editValue}
-              onChange={e => setEditValue(e.target.value.slice(0, LABEL_MAX_LENGTH))}
-              onKeyDown={handleKeyDown}
-              onBlur={commitEdit}
-              maxLength={LABEL_MAX_LENGTH}
-              className={shaking ? 'cg-shake' : ''}
-              style={{
-                width: '100%',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#E5E7EB',
-                background: 'rgba(255,255,255,0.1)',
-                border: '1px solid #3B82F6',
-                borderRadius: 4,
-                padding: '1px 4px',
-                outline: 'none',
-                lineHeight: '16px',
-              }}
-            />
-          ) : (
-            <div
-              onDoubleClick={handleDoubleClick}
-              style={{
-                color: isOffline ? '#6B7280' : '#E5E7EB',
-                fontSize: 12,
-                fontWeight: 600,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                lineHeight: '16px',
-                cursor: 'text',
-              }}
-              title={`${node.label} (double-click to edit)`}
-            >
-              {node.label}
-            </div>
-          )}
-          <div style={{ fontSize: 10, color: '#6B7280', lineHeight: '14px' }}>
-            {node.node_type}
+        {/* Minimal zoom: just a colored dot */}
+        {isMinimalZoom && (
+          <div className="flex items-center justify-center p-1">
+            <div className={`w-4 h-4 rounded-full ${statusColor} ring-2 ring-white dark:ring-dark-200`} />
           </div>
-        </div>
+        )}
+
+        {/* Basic + Full zoom: main content — mobes2.0 L488-631 */}
+        {!isMinimalZoom && (
+          <div className="flex items-start gap-2">
+            {/* Status dot */}
+            <div className={`w-4 h-4 rounded-full ${statusColor} ring-2 ring-white dark:ring-dark-200 mt-1 shrink-0`} />
+
+            <div className="flex-1 min-w-0">
+              {/* Icon + Label row */}
+              <div className="flex items-center gap-1.5">
+                {isFullZoom && (
+                  <NetworkDeviceIcon
+                    nodeType={node.node_type}
+                    className="w-4 h-4 text-dark-400 shrink-0"
+                  />
+                )}
+                {editing ? (
+                  <input
+                    type="text"
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    onBlur={handleEditSubmit}
+                    onKeyDown={handleEditKeyDown}
+                    autoFocus
+                    className="text-sm font-semibold bg-transparent border-b border-primary-400 text-gray-100 outline-none w-full"
+                  />
+                ) : (
+                  <span
+                    className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate cursor-default"
+                    onDoubleClick={handleDoubleClick}
+                    title={node.label}
+                  >
+                    {node.label}
+                  </span>
+                )}
+              </div>
+
+              {/* IP + source badge */}
+              {isFullZoom && node.ip && (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-xs text-gray-500 dark:text-dark-400">{node.ip}</span>
+                  {sourceBadge && (
+                    <span className={`px-1 py-0 text-[9px] rounded border ${sourceBadge.colorClass}`}>
+                      {sourceBadge.label}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* MAC */}
+              {isFullZoom && node.mac && (
+                <div className="text-xs text-gray-500 dark:text-dark-500 mt-0.5 truncate">
+                  {node.mac}
+                </div>
+              )}
+
+              {/* LacisID */}
+              {isFullZoom && node.lacis_id && (
+                <div className="text-xs text-gray-500 dark:text-dark-500 mt-0.5 truncate">
+                  LacisID {node.lacis_id}
+                </div>
+              )}
+
+              {/* Basic zoom: just IP (no MAC/LacisID) */}
+              {isBasicZoom && node.ip && (
+                <div className="text-xs text-gray-500 dark:text-dark-400 mt-0.5">{node.ip}</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Collapsed dot ring — mobes2.0 L633-669 */}
+        {node.collapsed && node.collapsed_child_count > 0 && !isMinimalZoom && (
+          <div className="absolute -inset-4 pointer-events-none">
+            {/* Decorative dots */}
+            <div className="absolute top-0 right-0 flex items-center gap-0.5 animate-pulse-subtle">
+              <div className="w-2 h-2 rounded-full bg-emerald-500/70" />
+              <div className="w-2 h-2 rounded-full bg-emerald-500/50" />
+              <div className="w-2 h-2 rounded-full bg-emerald-500/30" />
+            </div>
+            {/* Count badge */}
+            <div className="absolute -bottom-1 right-0 pointer-events-auto">
+              <button
+                onClick={handleCollapseClick}
+                className="
+                  bg-slate-800/90 text-[10px] font-semibold text-white
+                  px-1.5 py-0.5 rounded-full border border-dark-600
+                  hover:bg-slate-700 transition-colors cursor-pointer
+                "
+                title={`${node.collapsed_child_count} collapsed children (click to expand)`}
+              >
+                +{node.collapsed_child_count}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Expand/collapse toggle for non-collapsed nodes with children */}
+        {!node.collapsed && node.descendant_count > 0 && !isMinimalZoom && (
+          <button
+            onClick={handleCollapseClick}
+            className="
+              absolute -right-2 top-1/2 -translate-y-1/2
+              w-5 h-5 rounded-full bg-dark-800 border border-dark-600
+              text-[10px] text-dark-400 hover:text-white hover:bg-dark-700
+              flex items-center justify-center cursor-pointer transition-colors
+              pointer-events-auto
+            "
+            title={`Collapse (${node.descendant_count} descendants)`}
+          >
+            -
+          </button>
+        )}
+
+        {/* Tooltip */}
+        <Tooltip zoom={zoom}>
+          <div className="space-y-0.5">
+            <div className="font-semibold">{node.label}</div>
+            <div className="text-dark-400">{node.node_type} / {node.source}</div>
+            {node.ip && <div>IP: {node.ip}</div>}
+            {node.mac && <div>MAC: {node.mac}</div>}
+          </div>
+        </Tooltip>
       </div>
 
-      {/* IP address */}
-      {node.ip && (
-        <div style={{
-          fontSize: 11,
-          color: '#9CA3AF',
-          fontFamily: 'monospace',
-          marginTop: 6,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
-          {node.ip}
-        </div>
-      )}
-
-      {/* MAC address (infrastructure nodes only) */}
-      {node.mac && !isClient && (
-        <div
-          style={{
-            fontSize: 9.5,
-            color: '#6B7280',
-            fontFamily: 'monospace',
-            marginTop: 2,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={node.mac}
-        >
-          {node.mac}
-        </div>
-      )}
-
-      {/* Tags: connection type + facility */}
-      {(node.fid || node.connection_type === 'vpn' || node.connection_type === 'wireless') && (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-          {node.fid && (
-            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(59,130,246,0.15)', color: '#60A5FA' }}>
-              fid:{node.fid}
-            </span>
-          )}
-          {node.connection_type === 'vpn' && (
-            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(156,39,176,0.15)', color: '#BA68C8' }}>
-              VPN
-            </span>
-          )}
-          {node.connection_type === 'wireless' && (
-            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(76,175,80,0.15)', color: '#66BB6A' }}>
-              WiFi
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Collapse badge */}
-      {node.descendant_count > 0 && (
-        <button
-          onClick={handleCollapseClick}
-          style={{
-            position: 'absolute',
-            right: -8,
-            bottom: -8,
-            cursor: 'pointer',
-            border: 'none',
-            background: 'none',
-            padding: 0,
-          }}
-        >
-          <span className="cg-collapse-badge">
-            {node.collapsed ? `+${node.collapsed_child_count}` : node.descendant_count}
-          </span>
-        </button>
-      )}
-
-      {/* Handle source (right) — 子へのエッジ送出（左→右ツリー） */}
+      {/* Source handle (right) */}
       <Handle
         type="source"
         position={Position.Right}
-        style={{ background: statusColor, width: 8, height: 8 }}
+        className="!w-3 !h-3 !bg-gray-400 dark:!bg-gray-600 !border-2 !border-white dark:!border-dark-100"
       />
-    </div>
+    </>
   );
-}
+});
 
-export const DeviceNode = memo(DeviceNodeComponent);
+DeviceNode.displayName = 'DeviceNode';

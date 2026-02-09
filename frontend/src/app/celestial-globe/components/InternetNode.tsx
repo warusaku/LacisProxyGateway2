@@ -1,69 +1,88 @@
-'use client';
-
 /**
- * InternetNode Component
+ * InternetNode Component — mobes2.0 L195-196, L688-714 ベース
  *
- * ReactFlow カスタムノード — インターネット接続点
- * SSOT: mobes2.0 InternetNode.tsx を LPG2 ダークテーマ向けに移植
- *
- * 重要な設計制約:
- *   - Handle type="source" (Position.Bottom) のみを持つ
- *   - Handle type="target" は存在しない
- *   → エッジの逆進（子ノード → InternetNode）を ReactFlow の構造レベルで禁止
- *   → Internet は常にトポロジーツリーのルートであり、親を持たない
- *
- * mobes2.0 仕様:
- *   - Cloud アイコン、中央配置
- *   - 背景: #E3F2FD（mobes2.0） → rgba(37, 99, 235, 0.15)（LPG2 dark）
- *   - ボーダー: #2196F3（mobes2.0） → #3B82F6（LPG2 blue-500）
- *   - Handle サイズ: 10x10（mobes2.0 準拠、DeviceNode の 8x8 より大きい）
+ * Internet 専用描画:
+ *   - indigo gradient background
+ *   - border-2 border-indigo-400 ring-1 ring-indigo-200/70
+ *   - Source handle (Position.Right) のみ → 逆進禁止を構造的に強制
  */
 
+'use client';
+
 import { memo } from 'react';
-import { Handle, Position, type NodeProps } from 'reactflow';
-import { Cloud } from 'lucide-react';
+import { Handle, Position } from 'reactflow';
+import type { NodeProps } from 'reactflow';
 import type { InternetNodeData } from '../types';
+import { useZoom } from './deviceNode/hooks';
 
-function InternetNodeComponent({ data, selected }: NodeProps<InternetNodeData>) {
+export const InternetNode = memo(({ data, selected }: NodeProps<InternetNodeData>) => {
+  const zoom = useZoom();
+  const isMinimalZoom = zoom < 0.4;
+
   return (
-    <div
-      style={{
-        padding: 16,
-        borderRadius: 8,
-        backgroundColor: 'rgba(37, 99, 235, 0.15)',
-        border: `2px solid ${selected ? '#60A5FA' : '#3B82F6'}`,
-        minWidth: 120,
-        textAlign: 'center',
-        boxShadow: selected ? '0 0 16px rgba(59, 130, 246, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
-        transition: 'all 0.2s ease',
-        cursor: 'pointer',
-      }}
-    >
-      {/* Cloud Icon */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-        <Cloud size={40} style={{ color: '#3B82F6' }} />
+    <>
+      <div
+        className={`
+          mindmap-node group relative rounded-lg shadow-lg p-3 transition-all
+          bg-gradient-to-br from-indigo-100 via-white to-indigo-50
+          dark:from-indigo-950/60 dark:via-indigo-900/30 dark:to-indigo-800/40
+          border-2 border-indigo-400 ring-1 ring-indigo-200/70
+          dark:border-indigo-500/60 dark:ring-indigo-500/20
+          ${selected ? 'mindmap-selection-pulse-strong ring-2 ring-primary-400/60' : ''}
+        `}
+        style={{ minWidth: isMinimalZoom ? 40 : 120 }}
+      >
+        {isMinimalZoom ? (
+          /* Minimal: just a globe icon */
+          <div className="flex items-center justify-center p-1">
+            <svg
+              className="w-5 h-5 text-indigo-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+            >
+              <path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+          </div>
+        ) : (
+          /* Normal: icon + label */
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-6 h-6 text-indigo-400 dark:text-indigo-300 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+            >
+              <path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            <div>
+              <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-200">
+                {data.label}
+              </div>
+              {data.ip && (
+                <div className="text-xs text-indigo-500 dark:text-indigo-400">
+                  {data.ip}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Label */}
-      <div style={{ fontWeight: 600, fontSize: 14, color: '#E5E7EB' }}>
-        {data.label || 'Internet'}
-      </div>
-
-      {/* IP */}
-      {data.ip && (
-        <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>
-          {data.ip}
-        </div>
-      )}
-
-      {/* Source handle ONLY (right) — target handle は意図的に無い */}
+      {/* Source handle only (right) — no target handle = structurally prevents reverse edges */}
       <Handle
         type="source"
         position={Position.Right}
-        style={{ background: '#3B82F6', width: 10, height: 10 }}
+        className="!w-3 !h-3 !bg-indigo-400 dark:!bg-indigo-500 !border-2 !border-white dark:!border-dark-100"
       />
-    </div>
+    </>
   );
-}
+});
 
-export const InternetNode = memo(InternetNodeComponent);
+InternetNode.displayName = 'InternetNode';

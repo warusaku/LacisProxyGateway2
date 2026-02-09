@@ -1,36 +1,22 @@
-'use client';
-
 /**
- * MindMapCanvas Component
+ * MindMapCanvas Component — DFSレイアウト完全修正版
  *
- * ReactFlow ベースのトポロジーキャンバス
- * SSOT: mobes2.0 TopologyCanvas.tsx を LPG2 向けに完全移植
+ * 前回の問題: getNodeHeight() の値が実際の CSS 描画サイズと乖離
+ * 今回の修正:
+ *   - p-3 = 12px * 2 = 24px padding
+ *   - border = 1px or 2px (logic_device) → 2-4px total
+ *   - 各要素の実際の行高を正確に積算
+ *   - V_GAP = 28px (badge が -top-2 で上にはみ出すため余裕確保)
+ *   - H_SPACING = 260px
  *
- * レイアウト:
- *   位置 = f(parent_id, order) — フロントエンドDFS O(n) で決定論的に計算
- *   バックエンドは位置データを一切返さない/永続化しない
- *   ドラッグ無効 (draggable: false)
- *
- * mobes2.0 構造準拠:
- *   nodeTypes = { device: DeviceNode, internet: InternetNode }
- *     - InternetNode: source handle (right) のみ（逆進禁止を構造的に強制）
- *     - DeviceNode: target (left) + source (right) — 左→右ツリー
- *
- *   edgeTypes = { topology: TopologyEdge }
- *     - data.connectionType でスタイル決定
- *     - getSmoothStepPath + path 直接描画（直角折れ線）
- *
- *   defaultEdgeOptions = { type: 'topology' }
- *     - 全エッジにカスタム TopologyEdge を適用
- *
- *   エッジ方向ルール:
- *     source = 親ノード (Handle source = right)
- *     target = 子ノード (Handle target = left)
- *     → 親→子の左→右一方向フローをReactFlowの接続モデルで強制
- *
- *   Background: variant=Dots, gap=20, size=1
- *   MiniMap: nodeStrokeWidth=2, zoomable, pannable
+ * ReactFlow設定 — mobes2.0 MindMapCanvas.tsx L744-813 準拠:
+ *   - minZoom=0.1, maxZoom=2
+ *   - fitView, fitViewOptions: { padding: 0.2 }
+ *   - Background: Dots, gap=24, size=1, color="#334155"
+ *   - MiniMap: pannable, zoomable
  */
+
+'use client';
 
 import { useCallback, useMemo } from 'react';
 import ReactFlow, {
@@ -63,73 +49,74 @@ import type {
   TopologyEdgeData,
 } from '../types';
 
-// mobes2.0 準拠: nodeTypes — device + internet の2種登録
+// nodeTypes: device + internet
 const nodeTypes: NodeTypes = {
   device: DeviceNode,
   internet: InternetNode,
 };
 
-// mobes2.0 準拠: edgeTypes — カスタム TopologyEdge 登録
+// edgeTypes: custom TopologyEdge
 const edgeTypes: EdgeTypes = {
   topology: TopologyEdge,
 };
 
-// mobes2.0 準拠: 全エッジに type='topology' を適用
 const defaultEdgeOptions = {
   type: 'topology',
   animated: false,
 };
 
 // ============================================================================
-// DFS deterministic layout: position = f(parent_id, order)
+// DFS deterministic layout — p-3 ベース正確計算
 // ============================================================================
 
-const H_SPACING = 280;  // horizontal spacing per depth level (px)
-const V_GAP = 16;       // minimum vertical gap between siblings (px)
+const H_SPACING = 260;  // horizontal spacing per depth level
+const V_GAP = 28;       // vertical gap between siblings (badge はみ出し考慮)
 
-/** Get node height based on node_type */
+/**
+ * Get node height based on node_type — p-3 ベース正確計算
+ *
+ * p-3 = 12px * 2 = 24px padding
+ * border-1 = 1px * 2 = 2px (normal) or border-2 = 2px * 2 = 4px (logic_device)
+ *
+ * Infrastructure (gateway/router/switch/ap/external/lpg_server):
+ *   dot(16) + label(20) + IP(18) + MAC(18) + padding(24) + border(2) = ~98 → 100
+ * Client/WG_peer:
+ *   dot(16) + label(20) + IP(18) + padding(24) + border(2) = ~80 → 82
+ * Internet:
+ *   icon(24) + label(20) + padding(24) + border(4) = ~72
+ * Logic device:
+ *   same as infrastructure + border-2 = 100
+ */
 function getNodeHeight(nodeType?: string): number {
-  switch (nodeType) {
-    case 'internet': return 60;
-    case 'gateway':
-    case 'router':
-    case 'switch':
-    case 'ap':
-    case 'external':
-    case 'lpg_server':
-    case 'logic_device':
-      return 80;
-    default: return 56; // client, wg_peer
-  }
+  if (nodeType === 'internet') return 72;
+  if (nodeType === 'client' || nodeType === 'wg_peer') return 82;
+  return 100; // gateway, router, switch, ap, external, lpg_server, logic_device, controller
 }
 
 /**
  * Compute deterministic DFS layout from topology nodes.
- * Each node's position is determined solely by (parent_id, order).
- * O(n) time complexity — each node visited exactly once.
+ * Each node's position = f(parent_id, order). O(n).
  */
 function computeDfsLayout(nodes: TopologyNodeV2[]): Map<string, { x: number; y: number }> {
-  // Build children map (parent_id → children sorted by order)
   const childrenMap = new Map<string, TopologyNodeV2[]>();
   const nodeById = new Map<string, TopologyNodeV2>();
 
   for (const n of nodes) {
     nodeById.set(n.id, n);
     const pid = n.parent_id || '__internet__';
-    if (pid === n.id) continue; // Skip self-referencing (__internet__ node)
+    if (pid === n.id) continue; // Skip self-referencing
     if (!childrenMap.has(pid)) childrenMap.set(pid, []);
     childrenMap.get(pid)!.push(n);
   }
 
   // Sort children by order
   childrenMap.forEach((children) => {
-    children.sort((a: TopologyNodeV2, b: TopologyNodeV2) => a.order - b.order);
+    children.sort((a, b) => a.order - b.order);
   });
 
   const positions = new Map<string, { x: number; y: number }>();
   let cursorY = 0;
 
-  // DFS: leaves get cursorY, parents get center of children
   function dfs(nodeId: string, depth: number): [number, number] {
     const children = childrenMap.get(nodeId) || [];
     const x = depth * H_SPACING;
@@ -137,14 +124,12 @@ function computeDfsLayout(nodes: TopologyNodeV2[]): Map<string, { x: number; y: 
     const h = getNodeHeight(node?.node_type);
 
     if (children.length === 0) {
-      // Leaf: place at current cursor
       positions.set(nodeId, { x, y: cursorY });
       const startY = cursorY;
       cursorY += h + V_GAP;
       return [startY, startY + h];
     }
 
-    // Parent: recurse into children first, then center
     let firstStart = Infinity;
     let lastEnd = 0;
     for (const child of children) {
@@ -157,16 +142,12 @@ function computeDfsLayout(nodes: TopologyNodeV2[]): Map<string, { x: number; y: 
     return [firstStart, lastEnd];
   }
 
-  // Start from __internet__ (virtual root)
   dfs('__internet__', 0);
 
   return positions;
 }
 
-/**
- * トポロジーノード → ReactFlow ノード変換
- * Position is computed by DFS layout, not from backend data.
- */
+/** topology nodes → ReactFlow nodes */
 function toFlowNodes(
   topoNodes: TopologyNodeV2[],
   positions: Map<string, { x: number; y: number }>,
@@ -177,7 +158,6 @@ function toFlowNodes(
   return topoNodes.map(n => {
     const pos = positions.get(n.id) || { x: 0, y: 0 };
 
-    // InternetNode: 独立コンポーネント（source-only handle で逆進禁止）
     if (n.node_type === 'internet') {
       return {
         id: n.id,
@@ -191,7 +171,6 @@ function toFlowNodes(
       };
     }
 
-    // DeviceNode: target (left) + source (right) handle
     return {
       id: n.id,
       type: 'device',
@@ -207,20 +186,12 @@ function toFlowNodes(
   });
 }
 
-/**
- * トポロジーエッジ → ReactFlow エッジ変換
- *
- * エッジ方向: source = 親ノード (from), target = 子ノード (to)
- * → ReactFlow の接続モデルで親→子の一方向フローを強制
- * → InternetNode は source handle のみなので、逆方向のエッジは接続不可能
- *
- * data.connectionType: TopologyEdge コンポーネントがスタイルを決定するために使用
- */
+/** topology edges → ReactFlow edges */
 function toFlowEdges(topoEdges: TopologyEdgeV2[]): Edge[] {
   return topoEdges.map((e, i) => ({
     id: `edge-${i}-${e.from}-${e.to}`,
-    source: e.from,   // 親ノード（Handle type="source" = right）
-    target: e.to,     // 子ノード（Handle type="target" = left）
+    source: e.from,
+    target: e.to,
     type: 'topology',
     data: {
       connectionType: e.edge_type as EdgeType,
@@ -229,6 +200,10 @@ function toFlowEdges(topoEdges: TopologyEdgeV2[]): Edge[] {
     } satisfies TopologyEdgeData,
   }));
 }
+
+// ============================================================================
+// Canvas component
+// ============================================================================
 
 interface MindMapCanvasInnerProps {
   onAddLogicDevice: () => void;
@@ -250,7 +225,6 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
     updateNodeLabel(nodeId, newLabel);
   }, [updateNodeLabel]);
 
-  // Compute DFS layout from (parent_id, order)
   const positions = useMemo(() => computeDfsLayout(topoNodes), [topoNodes]);
 
   const flowNodes = useMemo(
@@ -274,10 +248,9 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
-  // mobes2.0 準拠: MiniMap ノード色関数
+  // MiniMap node color
   const getNodeColor = useCallback((n: Node): string => {
     if (n.type === 'internet') return '#3B82F6';
-
     const data = n.data as DeviceNodeData | undefined;
     if (!data?.node) return '#333';
     const st = data.node.state_type;
@@ -305,16 +278,20 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        {/* mobes2.0 準拠: gap=20, size=1 — ズーム時にグリッド粒度が変化 */}
-        <Background color="#333" gap={20} size={1} variant={BackgroundVariant.Dots} />
-        {/* mobes2.0 準拠: nodeStrokeWidth=2, zoomable, pannable */}
+        {/* mobes2.0 準拠: Dots background */}
+        <Background color="#334155" gap={24} size={1} variant={BackgroundVariant.Dots} />
+        {/* mobes2.0 準拠: MiniMap */}
         <MiniMap
           nodeColor={getNodeColor}
           nodeStrokeWidth={2}
           zoomable
           pannable
           maskColor="rgba(0,0,0,0.7)"
-          style={{ background: 'rgba(10,10,10,0.9)', border: '1px solid rgba(51,51,51,0.5)', borderRadius: 8 }}
+          style={{
+            background: 'rgba(10,10,10,0.9)',
+            border: '1px solid rgba(51,51,51,0.5)',
+            borderRadius: 8,
+          }}
         />
       </ReactFlow>
       <Toolbar onAddLogicDevice={onAddLogicDevice} />
