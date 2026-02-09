@@ -1039,6 +1039,69 @@ export const topologyApi = {
 };
 
 // ============================================================================
+// Topology v2 API (CelestialGlobe v2)
+// ============================================================================
+
+import type {
+  TopologyV2Response,
+  CreateLogicDeviceRequest,
+  UpdateLogicDeviceRequest,
+  TopologyViewFilter,
+} from '@/app/celestial-globe/types';
+
+export const topologyV2Api = {
+  getTopology: (view?: TopologyViewFilter, fid?: string) => {
+    const query = new URLSearchParams();
+    if (view) query.set('view', view);
+    if (fid) query.set('fid', fid);
+    const qs = query.toString();
+    return request<TopologyV2Response>(`/topology/v2${qs ? `?${qs}` : ''}`);
+  },
+
+  recalcLayout: () =>
+    request<{ ok: boolean; message: string; nodes_positioned: number; last_layout_at: string }>(
+      '/topology/layout',
+      { method: 'POST' }
+    ),
+
+  updateNodePosition: (nodeId: string, x: number, y: number) =>
+    request<{ ok: boolean; node_id: string }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/position`,
+      { method: 'PUT', body: JSON.stringify({ x, y }) }
+    ),
+
+  updateParent: (nodeId: string, newParentId: string) =>
+    request<{ ok: boolean; node_id: string; new_parent_id: string }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/parent`,
+      { method: 'PUT', body: JSON.stringify({ new_parent_id: newParentId }) }
+    ),
+
+  toggleCollapse: (nodeId: string, collapsed: boolean) =>
+    request<{ ok: boolean; node_id: string; collapsed: boolean }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/collapse`,
+      { method: 'PUT', body: JSON.stringify({ collapsed }) }
+    ),
+
+  createLogicDevice: (data: CreateLogicDeviceRequest) =>
+    request<{ ok: boolean; id: string; message: string }>(
+      '/topology/logic-devices',
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  updateLogicDevice: (id: string, data: UpdateLogicDeviceRequest) =>
+    request<{ ok: boolean; id: string; message: string }>(
+      `/topology/logic-devices/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    ),
+
+  deleteLogicDevice: (id: string) =>
+    request<{ ok: boolean; message: string }>(
+      `/topology/logic-devices/${encodeURIComponent(id)}?confirm=true`,
+      { method: 'DELETE' }
+    ),
+};
+
+// ============================================================================
 // Operation Logs API
 // ============================================================================
 

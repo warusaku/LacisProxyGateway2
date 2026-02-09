@@ -7,6 +7,7 @@ pub mod omada;
 pub mod operation_logs;
 pub mod openwrt;
 mod security_events;
+pub mod topology;
 
 use mongodb::{Client, Database};
 use mongodb::bson::doc;
