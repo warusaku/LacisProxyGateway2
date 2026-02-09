@@ -167,6 +167,46 @@
 }
 
 /* ============================================================================
+   Collapse Toggle Button
+   ============================================================================ */
+
+.cg-collapse-toggle {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1e293b;
+  border: 2px solid #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: #94a3b8;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.cg-collapse-toggle:hover {
+  background: #334155;
+  border-color: #60a5fa;
+  color: #60a5fa;
+  transform: translateY(-50%) scale(1.15);
+}
+
+.cg-collapse-toggle:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+/* ============================================================================
    エッジフローアニメーション
    ============================================================================ */
 
@@ -335,5 +375,11 @@
   .animate-float-in,
   .edge-animated path {
     animation: none !important;
+  }
+
+  .cg-collapse-toggle,
+  .cg-collapse-toggle:hover,
+  .cg-collapse-toggle:active {
+    transition: none !important;
   }
 }

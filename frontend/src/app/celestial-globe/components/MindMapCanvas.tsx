@@ -149,6 +149,21 @@ export function MindMapCanvas() {
   }, [updateNodeLabel]);
 
   // ============================================================================
+  // Event handlers: Collapse toggle via CustomEvent
+  // ============================================================================
+
+  useEffect(() => {
+    const handleCollapseToggle = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.nodeId) {
+        toggleCollapse(detail.nodeId);
+      }
+    };
+    document.addEventListener('cg:collapse-toggle', handleCollapseToggle);
+    return () => document.removeEventListener('cg:collapse-toggle', handleCollapseToggle);
+  }, [toggleCollapse]);
+
+  // ============================================================================
   // Node click → selection
   // ============================================================================
 

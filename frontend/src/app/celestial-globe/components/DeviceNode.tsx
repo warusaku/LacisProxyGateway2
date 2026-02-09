@@ -65,6 +65,33 @@ function CollapsedDotRing({ count }: { count: number }) {
 }
 
 // ============================================================================
+// Collapse Toggle Button (right side, near source handle)
+// ============================================================================
+
+function CollapseToggleButton({ nodeId, collapsed }: { nodeId: string; collapsed: boolean }) {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    document.dispatchEvent(new CustomEvent('cg:collapse-toggle', {
+      detail: { nodeId },
+      bubbles: true,
+    }));
+  }, [nodeId]);
+
+  return (
+    <button
+      type="button"
+      className="cg-collapse-toggle"
+      onClick={handleClick}
+      onMouseDown={(e) => e.stopPropagation()}
+      title={collapsed ? 'Expand children' : 'Collapse children'}
+    >
+      {collapsed ? '+' : '\u2212'}
+    </button>
+  );
+}
+
+// ============================================================================
 // DeviceNode Component
 // ============================================================================
 
@@ -120,6 +147,8 @@ function DeviceNodeInner({ id, data, selected }: NodeProps<CgDeviceNodeData>) {
   const isCollapsed = node.collapsed && (node.collapsed_child_count ?? 0) > 0;
   const isOffline = isOfflineStatus(node.state_type || node.status || 'unknown');
   const isGateway = nodeType === 'gateway';
+  const hasChildren = (node.descendant_count ?? 0) > 0;
+  const showCollapseToggle = hasChildren;
 
   // Container classes
   const containerClasses = [
@@ -252,6 +281,11 @@ function DeviceNodeInner({ id, data, selected }: NodeProps<CgDeviceNodeData>) {
         position={Position.Right}
         className="!w-3 !h-3 !bg-gray-400 dark:!bg-gray-600 !border-2 !border-white dark:!border-zinc-800"
       />
+
+      {/* Collapse toggle button (right side, near source handle) */}
+      {showCollapseToggle && (
+        <CollapseToggleButton nodeId={id} collapsed={!!node.collapsed} />
+      )}
     </div>
   );
 }
