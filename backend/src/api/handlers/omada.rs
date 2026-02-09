@@ -183,7 +183,7 @@ pub async fn sync_controller(
     require_permission(&user, 50)?;
 
     let syncer =
-        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone());
+        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone(), state.app_state.mysql.clone());
 
     match syncer.sync_one(&id).await {
         Ok(()) => Ok(Json(serde_json::json!({

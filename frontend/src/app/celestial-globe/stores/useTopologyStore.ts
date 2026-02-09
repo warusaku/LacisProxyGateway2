@@ -1,5 +1,7 @@
 // CelestialGlobe v2 — Zustand Topology Store
 // SSoT: Single store for all topology state management
+// Layout is computed deterministically on the frontend from (parent_id, order).
+// No position persistence or server-side layout computation.
 
 import { create } from 'zustand';
 import type {
@@ -14,36 +16,6 @@ import type {
   UpdateLogicDeviceRequest,
 } from '../types';
 import { topologyV2Api } from '@/lib/api';
-
-// ============================================================================
-// Position batch debounce (module-level to persist across renders)
-// ============================================================================
-const pendingPositions = new Map<string, { x: number; y: number }>();
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-const DEBOUNCE_MS = 500;
-
-function scheduleFlush() {
-  if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = setTimeout(flushPendingPositions, DEBOUNCE_MS);
-}
-
-async function flushPendingPositions() {
-  flushTimer = null;
-  if (pendingPositions.size === 0) return;
-
-  const batch = Array.from(pendingPositions.entries()).map(([node_id, pos]) => ({
-    node_id,
-    x: pos.x,
-    y: pos.y,
-  }));
-  pendingPositions.clear();
-
-  try {
-    await topologyV2Api.batchUpdatePositions(batch);
-  } catch (e) {
-    console.error('Failed to batch-persist positions:', e);
-  }
-}
 
 // ============================================================================
 // Store
@@ -84,33 +56,6 @@ export const useTopologyStore = create<TopologyStoreState>((set, get) => ({
         loading: false,
       });
     }
-  },
-
-  recalcLayout: async () => {
-    set({ loading: true, error: null });
-    try {
-      await topologyV2Api.recalcLayout();
-      await get().fetchTopology();
-    } catch (e) {
-      set({
-        error: e instanceof Error ? e.message : 'Layout recalculation failed',
-        loading: false,
-      });
-    }
-  },
-
-  updateNodePosition: async (nodeId: string, x: number, y: number) => {
-    // Optimistic update (immediate UI feedback)
-    set(state => ({
-      nodes: state.nodes.map(n =>
-        n.id === nodeId
-          ? { ...n, position: { x, y, pinned: true } }
-          : n
-      ),
-    }));
-    // Accumulate and debounce API call
-    pendingPositions.set(nodeId, { x, y });
-    scheduleFlush();
   },
 
   toggleCollapse: async (nodeId: string) => {

@@ -1,12 +1,12 @@
 //! CelestialGlobe topology API v2
 //!
-//! Integrates all data sources (Omada, OpenWrt, External, LogicDevice) into a unified
-//! network topology graph with server-side layout computation.
+//! Reads user_object_detail (SSoT) and returns topology data.
+//! Layout computation is done entirely on the frontend (DFS O(n)).
+//! No position data is stored or returned from the backend.
 //!
 //! Architecture:
-//! - Layout computation happens server-side (Rust)
-//! - Frontend receives pre-positioned nodes and renders them
-//! - Frontend sends position/collapse/reparent updates back
+//! - Backend: user_object_detail → nodes + edges (no position)
+//! - Frontend: DFS layout from (parent_id, sort_order) → positions
 
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -17,14 +17,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::api::auth_middleware::require_permission;
-use crate::db::mongo::topology::{LogicDeviceDoc, NodePosition, TopologyStateDoc};
+use crate::db::mongo::topology::{LogicDeviceDoc, TopologyStateDoc};
+use crate::db::mongo::user_object_detail::UserObjectDetail;
 use crate::error::AppError;
 use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
-use crate::node_order::logic_device_pseudo_mac;
 use crate::proxy::ProxyState;
+use crate::user_object_ingester::logic_device_pseudo_mac;
 
 // ============================================================================
-// Response types — v2
+// Response types — v2 (no position)
 // ============================================================================
 
 #[derive(Debug, Serialize)]
@@ -44,27 +45,21 @@ pub struct TopologyNodeV2 {
     pub ip: Option<String>,
     pub source: String,
     pub parent_id: Option<String>,
+    pub order: u32,
     pub lacis_id: Option<String>,
     pub candidate_lacis_id: Option<String>,
+    pub device_type: Option<String>,
     pub product_type: Option<String>,
     pub network_device_type: Option<String>,
     pub status: String,
+    pub state_type: String,
     pub metadata: serde_json::Value,
-    // v2 fields
-    pub position: PositionV2,
     pub collapsed: bool,
     pub collapsed_child_count: usize,
     pub descendant_count: usize,
     pub connection_type: String,
     pub fid: Option<String>,
     pub facility_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PositionV2 {
-    pub x: f64,
-    pub y: f64,
-    pub pinned: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,7 +83,6 @@ pub struct TopologyMetadata {
 #[derive(Debug, Serialize)]
 pub struct ViewConfig {
     pub collapsed_node_ids: Vec<String>,
-    pub last_layout_at: String,
 }
 
 // ============================================================================
@@ -152,24 +146,6 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdatePositionRequest {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct BatchPositionEntry {
-    pub node_id: String,
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct BatchUpdatePositionsRequest {
-    pub positions: Vec<BatchPositionEntry>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct UpdateLabelRequest {
     pub label: String,
 }
@@ -205,7 +181,7 @@ pub struct UpdateLogicDeviceRequest {
 }
 
 // ============================================================================
-// Helper: Format MAC address with colons (e.g., "AABBCCDDEEFF" → "AA:BB:CC:DD:EE:FF")
+// Helper: Format MAC address with colons
 // ============================================================================
 
 fn format_mac(mac: &str) -> String {
@@ -218,14 +194,12 @@ fn format_mac(mac: &str) -> String {
             .collect::<Vec<&str>>()
             .join(":")
     } else {
-        mac.to_string() // Already formatted or non-standard
+        mac.to_string()
     }
 }
 
-// looks_like_mac() and client_label() moved to node_order.rs (SSoT)
-
 // ============================================================================
-// Internal node builder (shared between v1 and v2)
+// Internal node builder
 // ============================================================================
 
 struct RawNode {
@@ -236,17 +210,21 @@ struct RawNode {
     ip: Option<String>,
     source: String,
     parent_id: Option<String>,
+    order: u32,
     lacis_id: Option<String>,
     candidate_lacis_id: Option<String>,
+    device_type: Option<String>,
     product_type: Option<String>,
     network_device_type: Option<String>,
     status: String,
+    state_type: String,
     metadata: serde_json::Value,
     connection_type: String,
     fid: Option<String>,
     facility_name: Option<String>,
 }
 
+#[derive(Clone)]
 struct RawEdge {
     from: String,
     to: String,
@@ -254,45 +232,44 @@ struct RawEdge {
     label: Option<String>,
 }
 
-/// Build raw nodes and edges from cg_node_order SSoT.
+/// Build raw nodes and edges from user_object_detail SSoT.
 ///
-/// nodeOrder absolute rules:
-/// 1. nodeOrder = 唯一のSSoT。nodeOrderに存在 = 描画対象
+/// Rules:
+/// 1. user_object_detail = 唯一のSSoT。存在 = 描画対象
 /// 2. 全ノードは完全に等価
 /// 3. ネットワーク構造: INTERNET → Gateway → Children → ...
-/// 4. Gateway不在 = ネットワーク障害。孤児ノードはGatewayにフォールバック (INTERNET直結禁止)
-/// 5. Controllerは物理トポロジーに含めない
+/// 4. Gateway不在 = ネットワーク障害。孤児ノードはGatewayにフォールバック
 async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, usize, usize) {
     let mongo = &state.app_state.mongo;
-    let entries = mongo.get_all_node_order().await.unwrap_or_default();
+    let entries = mongo.get_all_user_object_details().await.unwrap_or_default();
 
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut device_count = 0usize;
     let mut client_count = 0usize;
 
-    // Build MAC set for orphan detection
-    let mac_set: HashSet<String> = entries.iter().map(|e| e.mac.clone()).collect();
+    // Build _id set for orphan detection
+    let id_set: HashSet<String> = entries.iter().map(|e| e.id.clone()).collect();
 
-    // Find gateway MAC for orphan fallback (rule 4)
-    let gateway_mac = entries
+    // Find gateway _id for orphan fallback (rule 4)
+    let gateway_id = entries
         .iter()
         .find(|e| e.node_type == "gateway")
-        .map(|e| e.mac.clone());
+        .map(|e| e.id.clone());
 
     let internet_id = "__internet__".to_string();
 
-    // --- Convert each NodeOrderEntry to RawNode ---
+    // --- Convert each UserObjectDetail to RawNode ---
     for entry in &entries {
         // Determine parent_id for this node
-        let parent_id = if entry.parent_mac == "INTERNET" {
+        let parent_id = if entry.parent_id == "INTERNET" {
             Some(internet_id.clone())
-        } else if mac_set.contains(&entry.parent_mac) {
-            Some(entry.parent_mac.clone())
+        } else if id_set.contains(&entry.parent_id) {
+            Some(entry.parent_id.clone())
         } else {
-            // Orphan: parent_mac references a MAC that doesn't exist in nodeOrder
+            // Orphan: parent_id references an _id that doesn't exist
             // Rule 4: Fallback to gateway (INTERNET直結禁止)
-            Some(gateway_mac.clone().unwrap_or_else(|| internet_id.clone()))
+            Some(gateway_id.clone().unwrap_or_else(|| internet_id.clone()))
         };
 
         // Count devices vs clients
@@ -303,18 +280,21 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
         }
 
         nodes.push(RawNode {
-            id: entry.mac.clone(),
+            id: entry.id.clone(),
             label: entry.label.clone(),
             node_type: entry.node_type.clone(),
             mac: Some(format_mac(&entry.mac)),
             ip: entry.ip.clone(),
             source: entry.source.clone(),
             parent_id: parent_id.clone(),
+            order: entry.sort_order,
             lacis_id: entry.lacis_id.clone(),
             candidate_lacis_id: entry.candidate_lacis_id.clone(),
+            device_type: Some(entry.device_type.clone()),
             product_type: entry.product_type.clone(),
             network_device_type: entry.network_device_type.clone(),
-            status: entry.status.clone(),
+            status: entry.state_type.clone(),
+            state_type: entry.state_type.clone(),
             metadata: entry.metadata.clone(),
             connection_type: entry.connection_type.clone(),
             fid: entry.fid.clone(),
@@ -330,7 +310,7 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
             };
             edges.push(RawEdge {
                 from: pid.clone(),
-                to: entry.mac.clone(),
+                to: entry.id.clone(),
                 edge_type: edge_type.to_string(),
                 label: entry.ssid.clone(),
             });
@@ -339,18 +319,21 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
 
     // --- Virtual Internet Node (root) ---
     nodes.push(RawNode {
-        id: internet_id.clone(),
+        id: internet_id,
         label: "Internet".to_string(),
         node_type: "internet".to_string(),
         mac: None,
         ip: None,
         source: "lpg".to_string(),
         parent_id: None,
+        order: 0,
         lacis_id: None,
         candidate_lacis_id: None,
+        device_type: None,
         product_type: None,
         network_device_type: None,
         status: "online".to_string(),
+        state_type: "online".to_string(),
         metadata: serde_json::json!({}),
         connection_type: "wired".to_string(),
         fid: None,
@@ -358,300 +341,6 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
     });
 
     (nodes, edges, device_count, client_count)
-}
-
-// ============================================================================
-// Layout algorithm (mindmap-style, subtree-height-aware)
-// ============================================================================
-
-/// Vertical spacing between leaf nodes (minimum gap)
-const LEAF_V_GAP: f64 = 60.0;
-/// Extra vertical padding between subtrees of infrastructure nodes (switch/ap/router/gateway)
-const SUBTREE_V_PAD: f64 = 24.0;
-/// Horizontal spacing per depth level
-const H_SPACING_INFRA: f64 = 300.0;
-const H_SPACING_CLIENT: f64 = 240.0;
-
-/// Node height estimate for layout purposes (matches frontend NODE_SIZES roughly)
-fn node_height(node_type: &str) -> f64 {
-    match node_type {
-        "internet" => 72.0,
-        "controller" | "lpg_server" => 100.0,
-        "gateway" | "router" => 80.0,
-        "switch" | "ap" | "external" => 64.0,
-        "client" | "wg_peer" | "logic_device" => 52.0,
-        _ => 52.0,
-    }
-}
-
-fn h_spacing_for(node_type: &str) -> f64 {
-    match node_type {
-        "client" | "wg_peer" => H_SPACING_CLIENT,
-        _ => H_SPACING_INFRA,
-    }
-}
-
-fn is_infra(node_type: &str) -> bool {
-    matches!(
-        node_type,
-        "internet"
-            | "controller"
-            | "gateway"
-            | "router"
-            | "switch"
-            | "ap"
-            | "lpg_server"
-            | "external"
-            | "logic_device"
-    )
-}
-
-/// Compute the total vertical extent of a subtree rooted at `node_id`.
-/// Returns the total height that this subtree occupies.
-fn subtree_height(
-    node_id: &str,
-    node_type_map: &HashMap<String, String>,
-    children_map: &HashMap<String, Vec<String>>,
-    pinned_positions: &HashMap<String, NodePosition>,
-) -> f64 {
-    let self_h = node_type_map
-        .get(node_id)
-        .map(|t| node_height(t))
-        .unwrap_or(52.0);
-
-    // Pinned nodes: their subtree doesn't contribute to automatic layout sizing
-    if let Some(pos) = pinned_positions.get(node_id) {
-        if pos.pinned {
-            return self_h;
-        }
-    }
-
-    let Some(kids) = children_map.get(node_id) else {
-        return self_h; // leaf node
-    };
-    if kids.is_empty() {
-        return self_h;
-    }
-
-    // Sum of children subtree heights + gaps between them
-    let mut total: f64 = 0.0;
-    for (i, kid_id) in kids.iter().enumerate() {
-        let kid_h = subtree_height(kid_id, node_type_map, children_map, pinned_positions);
-        total += kid_h;
-        if i > 0 {
-            // Add gap between siblings
-            let kid_is_infra = node_type_map
-                .get(kid_id)
-                .map(|t| is_infra(t))
-                .unwrap_or(false);
-            total += if kid_is_infra {
-                LEAF_V_GAP + SUBTREE_V_PAD
-            } else {
-                LEAF_V_GAP
-            };
-        }
-    }
-
-    // The subtree height is at least the node's own height
-    total.max(self_h)
-}
-
-fn compute_layout(
-    nodes: &[RawNode],
-    positions: &HashMap<String, NodePosition>,
-) -> Vec<NodePosition> {
-    // Build tree structures
-    let mut children_ids: HashMap<String, Vec<String>> = HashMap::new();
-    let mut children_nodes: HashMap<String, Vec<&RawNode>> = HashMap::new();
-    let mut node_type_map: HashMap<String, String> = HashMap::new();
-    let mut root_nodes: Vec<&RawNode> = Vec::new();
-
-    for node in nodes {
-        node_type_map.insert(node.id.clone(), node.node_type.clone());
-        if let Some(ref pid) = node.parent_id {
-            children_ids
-                .entry(pid.clone())
-                .or_default()
-                .push(node.id.clone());
-            children_nodes.entry(pid.clone()).or_default().push(node);
-        } else {
-            root_nodes.push(node);
-        }
-    }
-
-    // Sort children: infrastructure nodes first (switch/ap/router), then clients
-    // This groups network devices together visually
-    for kids in children_nodes.values_mut() {
-        kids.sort_by(|a, b| {
-            let a_infra = is_infra(&a.node_type);
-            let b_infra = is_infra(&b.node_type);
-            b_infra.cmp(&a_infra).then_with(|| a.label.cmp(&b.label))
-        });
-    }
-    // Also sort children_ids to match
-    for (pid, kid_ids) in children_ids.iter_mut() {
-        if let Some(sorted_nodes) = children_nodes.get(pid.as_str()) {
-            *kid_ids = sorted_nodes.iter().map(|n| n.id.clone()).collect();
-        }
-    }
-
-    let mut result: Vec<NodePosition> = Vec::new();
-
-    // Compute total root subtree heights
-    let root_heights: Vec<f64> = root_nodes
-        .iter()
-        .map(|r| subtree_height(&r.id, &node_type_map, &children_ids, positions))
-        .collect();
-    let total_root_h: f64 = root_heights.iter().sum::<f64>()
-        + (root_nodes.len().saturating_sub(1) as f64) * (LEAF_V_GAP + SUBTREE_V_PAD);
-    let mut cursor_y = -total_root_h / 2.0;
-
-    for (i, root) in root_nodes.iter().enumerate() {
-        let st_h = root_heights[i];
-
-        // Pinned root: use stored position
-        if let Some(stored) = positions.get(&root.id) {
-            if stored.pinned {
-                result.push(stored.clone());
-                layout_subtree_v2(
-                    &root.id,
-                    stored.x,
-                    stored.y,
-                    &children_nodes,
-                    &children_ids,
-                    &node_type_map,
-                    positions,
-                    &mut result,
-                );
-                cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
-                continue;
-            }
-        }
-
-        let x = 0.0;
-        let y = cursor_y + st_h / 2.0; // center of this subtree extent
-        result.push(NodePosition {
-            node_id: root.id.clone(),
-            x,
-            y,
-            pinned: false,
-        });
-
-        layout_subtree_v2(
-            &root.id,
-            x,
-            y,
-            &children_nodes,
-            &children_ids,
-            &node_type_map,
-            positions,
-            &mut result,
-        );
-
-        cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
-    }
-
-    result
-}
-
-/// Layout children of `parent_id` using subtree-height-aware cumulative offset.
-/// Each child is positioned at parent_x + h_spacing, with Y determined by
-/// the cumulative sum of preceding sibling subtree heights.
-fn layout_subtree_v2(
-    parent_id: &str,
-    parent_x: f64,
-    parent_y: f64,
-    children_nodes: &HashMap<String, Vec<&RawNode>>,
-    children_ids: &HashMap<String, Vec<String>>,
-    node_type_map: &HashMap<String, String>,
-    pinned_positions: &HashMap<String, NodePosition>,
-    result: &mut Vec<NodePosition>,
-) {
-    let Some(kids) = children_nodes.get(parent_id) else {
-        return;
-    };
-    if kids.is_empty() {
-        return;
-    }
-
-    // Compute subtree heights for each child
-    let kid_heights: Vec<f64> = kids
-        .iter()
-        .map(|k| subtree_height(&k.id, node_type_map, children_ids, pinned_positions))
-        .collect();
-
-    // Total height = sum of subtree heights + gaps
-    let mut total_h: f64 = 0.0;
-    for (i, h) in kid_heights.iter().enumerate() {
-        total_h += h;
-        if i > 0 {
-            let kid_infra = is_infra(&kids[i].node_type);
-            total_h += if kid_infra {
-                LEAF_V_GAP + SUBTREE_V_PAD
-            } else {
-                LEAF_V_GAP
-            };
-        }
-    }
-
-    // Start Y: center children block around parent_y
-    let mut cursor_y = parent_y - total_h / 2.0;
-
-    for (i, kid) in kids.iter().enumerate() {
-        let st_h = kid_heights[i];
-        let child_x = parent_x + h_spacing_for(&kid.node_type);
-
-        // Add gap before non-first siblings
-        if i > 0 {
-            let kid_infra = is_infra(&kid.node_type);
-            cursor_y += if kid_infra {
-                LEAF_V_GAP + SUBTREE_V_PAD
-            } else {
-                LEAF_V_GAP
-            };
-        }
-
-        // Pinned: use stored position
-        if let Some(stored) = pinned_positions.get(&kid.id) {
-            if stored.pinned {
-                result.push(stored.clone());
-                layout_subtree_v2(
-                    &kid.id,
-                    stored.x,
-                    stored.y,
-                    children_nodes,
-                    children_ids,
-                    node_type_map,
-                    pinned_positions,
-                    result,
-                );
-                cursor_y += st_h;
-                continue;
-            }
-        }
-
-        // Center this child within its subtree extent
-        let y = cursor_y + st_h / 2.0;
-        result.push(NodePosition {
-            node_id: kid.id.clone(),
-            x: child_x,
-            y,
-            pinned: false,
-        });
-
-        layout_subtree_v2(
-            &kid.id,
-            child_x,
-            y,
-            children_nodes,
-            children_ids,
-            node_type_map,
-            pinned_positions,
-            result,
-        );
-
-        cursor_y += st_h;
-    }
 }
 
 /// Count descendants recursively
@@ -673,10 +362,9 @@ fn count_descendants(node_id: &str, children_map: &HashMap<String, Vec<String>>)
 fn filter_for_route_view(
     nodes: &[RawNode],
     edges: &[RawEdge],
-    proxy_routes: &[(String, String)], // (path, target_ip)
+    proxy_routes: &[(String, String)],
     node_ip_map: &HashMap<String, String>,
 ) -> (HashSet<String>, Vec<RawEdge>) {
-    // Find node IDs whose IP matches any proxy route target
     let mut target_node_ids: HashSet<String> = HashSet::new();
     for (_path, target_ip) in proxy_routes {
         for (node_id, ip) in node_ip_map {
@@ -686,7 +374,6 @@ fn filter_for_route_view(
         }
     }
 
-    // Trace paths from target nodes up to root
     let parent_map: HashMap<String, String> = nodes
         .iter()
         .filter_map(|n| n.parent_id.as_ref().map(|p| (n.id.clone(), p.clone())))
@@ -702,7 +389,6 @@ fn filter_for_route_view(
         }
     }
 
-    // Filter edges to only those between visible nodes
     let route_edges: Vec<RawEdge> = edges
         .iter()
         .filter(|e| visible_ids.contains(&e.from) && visible_ids.contains(&e.to))
@@ -778,7 +464,7 @@ pub async fn get_topology(State(state): State<ProxyState>) -> Result<impl IntoRe
     }))
 }
 
-/// GET /api/topology/v2 — full v2 response with positions
+/// GET /api/topology/v2 — full v2 response (no position, frontend computes layout)
 pub async fn get_topology_v2(
     State(state): State<ProxyState>,
     Query(query): Query<TopologyV2Query>,
@@ -786,9 +472,7 @@ pub async fn get_topology_v2(
     let mongo = &state.app_state.mongo;
     let (raw_nodes, raw_edges, device_count, client_count) = build_raw_topology(&state).await;
 
-    // Load persistent state
-    let saved_positions = mongo.get_all_node_positions().await.unwrap_or_default();
-    // custom_labels no longer needed: nodeOrder.label + label_customized is the SSoT
+    // Load collapsed state
     let topo_state = mongo
         .get_topology_state()
         .await
@@ -797,25 +481,7 @@ pub async fn get_topology_v2(
             collapsed_node_ids: Vec::new(),
             last_layout_at: String::new(),
         });
-
-    let pos_map: HashMap<String, NodePosition> = saved_positions
-        .into_iter()
-        .map(|p| (p.node_id.clone(), p))
-        .collect();
     let collapsed_set: HashSet<String> = topo_state.collapsed_node_ids.iter().cloned().collect();
-
-    // Compute layout for nodes without stored positions
-    let computed_positions = compute_layout(&raw_nodes, &pos_map);
-    let mut final_pos_map: HashMap<String, NodePosition> = computed_positions
-        .into_iter()
-        .map(|p| (p.node_id.clone(), p))
-        .collect();
-    // Override with stored pinned positions
-    for (id, pos) in &pos_map {
-        if pos.pinned {
-            final_pos_map.insert(id.clone(), pos.clone());
-        }
-    }
 
     // Build children map for descendant counting
     let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -831,7 +497,6 @@ pub async fn get_topology_v2(
     // Handle view filter
     let (visible_ids, filtered_edges) = match query.view.as_str() {
         "routes" => {
-            // Get proxy routes
             let routes = state
                 .app_state
                 .mysql
@@ -846,12 +511,10 @@ pub async fn get_topology_v2(
                     (r.path.clone(), target_ip)
                 })
                 .collect();
-
             let node_ip_map: HashMap<String, String> = raw_nodes
                 .iter()
                 .filter_map(|n| n.ip.as_ref().map(|ip| (n.id.clone(), ip.clone())))
                 .collect();
-
             filter_for_route_view(&raw_nodes, &raw_edges, &proxy_routes, &node_ip_map)
         }
         "site" => {
@@ -861,7 +524,6 @@ pub async fn get_topology_v2(
                     .filter(|n| n.fid.as_ref() == Some(fid))
                     .map(|n| n.id.clone())
                     .collect();
-                // Include children of site nodes
                 let mut expanded = site_ids.clone();
                 for n in &raw_nodes {
                     if let Some(ref pid) = n.parent_id {
@@ -899,7 +561,6 @@ pub async fn get_topology_v2(
     };
 
     // Build final nodes
-    // Controller count from omada_controllers (not in nodeOrder per rule 6)
     let controllers = mongo
         .list_omada_controllers()
         .await
@@ -912,12 +573,6 @@ pub async fn get_topology_v2(
         .iter()
         .filter(|n| visible_ids.contains(&n.id) && !hidden_by_collapse.contains(&n.id))
         .map(|n| {
-            let pos = final_pos_map.get(&n.id).cloned().unwrap_or(NodePosition {
-                node_id: n.id.clone(),
-                x: 0.0,
-                y: 0.0,
-                pinned: false,
-            });
             let is_collapsed = collapsed_set.contains(&n.id);
             let collapsed_child_count = if is_collapsed {
                 children_map.get(&n.id).map(|c| c.len()).unwrap_or(0)
@@ -925,9 +580,6 @@ pub async fn get_topology_v2(
                 0
             };
             let desc_count = count_descendants(&n.id, &children_map);
-
-            // Label comes directly from nodeOrder SSoT
-            // (label_customized entries are preserved during ingestion upsert)
 
             TopologyNodeV2 {
                 id: n.id.clone(),
@@ -937,17 +589,15 @@ pub async fn get_topology_v2(
                 ip: n.ip.clone(),
                 source: n.source.clone(),
                 parent_id: n.parent_id.clone(),
+                order: n.order,
                 lacis_id: n.lacis_id.clone(),
                 candidate_lacis_id: n.candidate_lacis_id.clone(),
+                device_type: n.device_type.clone(),
                 product_type: n.product_type.clone(),
                 network_device_type: n.network_device_type.clone(),
                 status: n.status.clone(),
+                state_type: n.state_type.clone(),
                 metadata: n.metadata.clone(),
-                position: PositionV2 {
-                    x: pos.x,
-                    y: pos.y,
-                    pinned: pos.pinned,
-                },
                 collapsed: is_collapsed,
                 collapsed_child_count,
                 descendant_count: desc_count,
@@ -983,110 +633,11 @@ pub async fn get_topology_v2(
         },
         view_config: ViewConfig {
             collapsed_node_ids: topo_state.collapsed_node_ids,
-            last_layout_at: topo_state.last_layout_at,
         },
     }))
 }
 
-/// POST /api/topology/layout — recalculate layout
-pub async fn recalc_topology_layout(
-    State(state): State<ProxyState>,
-    Extension(user): Extension<AuthUser>,
-) -> Result<impl IntoResponse, AppError> {
-    require_permission(&user, 50)?;
-
-    let mongo = &state.app_state.mongo;
-    let (raw_nodes, _raw_edges, _, _) = build_raw_topology(&state).await;
-
-    // Only keep pinned positions
-    let saved = mongo.get_all_node_positions().await.unwrap_or_default();
-    let pinned_map: HashMap<String, NodePosition> = saved
-        .into_iter()
-        .filter(|p| p.pinned)
-        .map(|p| (p.node_id.clone(), p))
-        .collect();
-
-    let new_positions = compute_layout(&raw_nodes, &pinned_map);
-    mongo
-        .batch_upsert_node_positions(&new_positions)
-        .await
-        .map_err(|e| AppError::InternalError(e))?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-    mongo
-        .set_last_layout_at(&now)
-        .await
-        .map_err(|e| AppError::InternalError(e))?;
-
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "message": "Layout recalculated",
-        "nodes_positioned": new_positions.len(),
-        "last_layout_at": now,
-    })))
-}
-
-/// PUT /api/topology/nodes/:id/position — update node position
-pub async fn update_node_position(
-    State(state): State<ProxyState>,
-    Extension(user): Extension<AuthUser>,
-    Path(node_id): Path<String>,
-    Json(req): Json<UpdatePositionRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    require_permission(&user, 50)?;
-
-    let pos = NodePosition {
-        node_id: node_id.clone(),
-        x: req.x,
-        y: req.y,
-        pinned: true,
-    };
-    state
-        .app_state
-        .mongo
-        .upsert_node_position(&pos)
-        .await
-        .map_err(|e| AppError::InternalError(e))?;
-
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "node_id": node_id,
-    })))
-}
-
-/// PUT /api/topology/nodes/batch-positions — batch update node positions
-pub async fn batch_update_positions(
-    State(state): State<ProxyState>,
-    Extension(user): Extension<AuthUser>,
-    Json(req): Json<BatchUpdatePositionsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    require_permission(&user, 50)?;
-
-    let positions: Vec<NodePosition> = req
-        .positions
-        .iter()
-        .map(|e| NodePosition {
-            node_id: e.node_id.clone(),
-            x: e.x,
-            y: e.y,
-            pinned: true,
-        })
-        .collect();
-
-    state
-        .app_state
-        .mongo
-        .batch_upsert_node_positions(&positions)
-        .await
-        .map_err(|e| AppError::InternalError(e))?;
-
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "updated_count": positions.len(),
-    })))
-}
-
-/// PUT /api/topology/nodes/:id/label — update node label via nodeOrder SSoT
+/// PUT /api/topology/nodes/:id/label — update node label via user_object_detail SSoT
 pub async fn update_node_label(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1104,16 +655,18 @@ pub async fn update_node_label(
 
     let mongo = &state.app_state.mongo;
 
-    // Verify node exists in nodeOrder
+    // Verify node exists in user_object_detail
     let _node = mongo
-        .get_node_order_by_mac(&node_id)
+        .get_user_object_detail_by_id(&node_id)
         .await
         .map_err(|e| AppError::InternalError(e))?
-        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Node '{}' not found", node_id))
+        })?;
 
-    // Update label with customized=true (prevents ingestion from overwriting)
+    // Update label with customized=true
     mongo
-        .update_node_order_label(&node_id, label, true)
+        .update_user_object_detail_label(&node_id, label, true)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
@@ -1124,7 +677,7 @@ pub async fn update_node_label(
     })))
 }
 
-/// DELETE /api/topology/nodes/:id/label — revert to auto-generated label via nodeOrder SSoT
+/// DELETE /api/topology/nodes/:id/label — revert to auto-generated label
 pub async fn delete_node_label(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1134,16 +687,16 @@ pub async fn delete_node_label(
 
     let mongo = &state.app_state.mongo;
 
-    // Verify node exists
     let node = mongo
-        .get_node_order_by_mac(&node_id)
+        .get_user_object_detail_by_id(&node_id)
         .await
         .map_err(|e| AppError::InternalError(e))?
-        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Node '{}' not found", node_id))
+        })?;
 
-    // Set label_customized=false so next ingestion cycle will overwrite with auto-generated label
     mongo
-        .update_node_order_label(&node_id, &node.label, false)
+        .update_user_object_detail_label(&node_id, &node.label, false)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
@@ -1154,7 +707,7 @@ pub async fn delete_node_label(
     })))
 }
 
-/// PUT /api/topology/nodes/:id/parent — reparent any node via nodeOrder SSoT
+/// PUT /api/topology/nodes/:id/parent — reparent any node via user_object_detail SSoT
 pub async fn update_node_parent(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1165,37 +718,43 @@ pub async fn update_node_parent(
 
     let mongo = &state.app_state.mongo;
 
-    // Validate: node must exist in nodeOrder
-    let node = mongo
-        .get_node_order_by_mac(&node_id)
+    // Validate: node must exist
+    let _node = mongo
+        .get_user_object_detail_by_id(&node_id)
         .await
         .map_err(|e| AppError::InternalError(e))?
-        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Node '{}' not found", node_id))
+        })?;
 
-    // Validate: new parent must be "INTERNET" or exist in nodeOrder
-    let new_parent_mac = &req.new_parent_id;
-    let new_depth = if new_parent_mac == "INTERNET" {
-        1
-    } else {
+    let new_parent_id = &req.new_parent_id;
+
+    // Validate: new parent must be "INTERNET" or exist and be eligible
+    if new_parent_id != "INTERNET" {
         let parent = mongo
-            .get_node_order_by_mac(new_parent_mac)
+            .get_user_object_detail_by_id(new_parent_id)
             .await
             .map_err(|e| AppError::InternalError(e))?
             .ok_or_else(|| {
-                AppError::NotFound(format!(
-                    "New parent '{}' not found in nodeOrder",
-                    new_parent_mac
-                ))
+                AppError::NotFound(format!("New parent '{}' not found", new_parent_id))
             })?;
 
-        // Circular reference check: walk up from new_parent to ensure node_id is not an ancestor
-        let entries = mongo.get_all_node_order().await.unwrap_or_default();
-        let mac_to_parent: HashMap<String, String> = entries
+        // Check parent eligibility
+        if !UserObjectDetail::can_be_parent(&parent.id) {
+            return Err(AppError::BadRequest(format!(
+                "Node '{}' cannot be a parent (only LacisID or Logic Device nodes can be parents)",
+                new_parent_id
+            )));
+        }
+
+        // Circular reference check
+        let entries = mongo.get_all_user_object_details().await.unwrap_or_default();
+        let id_to_parent: HashMap<String, String> = entries
             .iter()
-            .map(|e| (e.mac.clone(), e.parent_mac.clone()))
+            .map(|e| (e.id.clone(), e.parent_id.clone()))
             .collect();
 
-        let mut current = new_parent_mac.clone();
+        let mut current = new_parent_id.clone();
         let mut visited = HashSet::new();
         while current != "INTERNET" {
             if current == node_id {
@@ -1205,36 +764,25 @@ pub async fn update_node_parent(
                 ));
             }
             if !visited.insert(current.clone()) {
-                break; // Safety: prevent infinite loop on broken data
+                break;
             }
-            current = mac_to_parent
+            current = id_to_parent
                 .get(&current)
                 .cloned()
                 .unwrap_or_else(|| "INTERNET".to_string());
         }
+    }
 
-        parent.depth + 1
-    };
-
-    // Update nodeOrder
+    // Update user_object_detail
     mongo
-        .update_node_order_parent(&node_id, new_parent_mac, new_depth)
+        .update_user_object_detail_parent(&node_id, new_parent_id)
         .await
         .map_err(|e| AppError::InternalError(e))?;
-
-    // Also update logic device if this is one (keep cg_logic_devices in sync)
-    if node.source == "manual" {
-        if let Some(ref source_ref) = node.source_ref_id {
-            let update = mongodb::bson::doc! { "parent_id": new_parent_mac };
-            let _ = mongo.update_logic_device(source_ref, update).await;
-        }
-    }
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "node_id": node_id,
-        "new_parent_id": new_parent_mac,
-        "new_depth": new_depth,
+        "new_parent_id": new_parent_id,
     })))
 }
 
@@ -1258,7 +806,8 @@ pub async fn toggle_node_collapse(
     })))
 }
 
-/// POST /api/topology/logic-devices — create logic device (also adds to nodeOrder SSoT)
+/// POST /api/topology/logic-devices — create logic device
+/// Also adds to user_object_detail SSoT and cg_logic_devices (metadata)
 pub async fn create_logic_device(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1271,30 +820,19 @@ pub async fn create_logic_device(
     let pseudo_mac = logic_device_pseudo_mac(&uuid.to_string());
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Resolve parent_mac: req.parent_id is now a MAC (or None → gateway fallback)
     let mongo = &state.app_state.mongo;
-    let parent_mac = if let Some(ref pid) = req.parent_id {
+
+    // Resolve parent_id
+    let parent_id = if let Some(ref pid) = req.parent_id {
         pid.clone()
     } else {
         // Default: find gateway or fallback to INTERNET
-        let entries = mongo.get_all_node_order().await.unwrap_or_default();
+        let entries = mongo.get_all_user_object_details().await.unwrap_or_default();
         entries
             .iter()
             .find(|e| e.node_type == "gateway")
-            .map(|e| e.mac.clone())
+            .map(|e| e.id.clone())
             .unwrap_or_else(|| "INTERNET".to_string())
-    };
-
-    let parent_depth = if parent_mac == "INTERNET" {
-        0
-    } else {
-        mongo
-            .get_node_order_by_mac(&parent_mac)
-            .await
-            .ok()
-            .flatten()
-            .map(|e| e.depth)
-            .unwrap_or(1)
     };
 
     // Create in cg_logic_devices (metadata store)
@@ -1302,7 +840,7 @@ pub async fn create_logic_device(
         id: id.clone(),
         label: req.label.clone(),
         device_type: req.device_type.clone(),
-        parent_id: Some(parent_mac.clone()),
+        parent_id: Some(parent_id.clone()),
         ip: req.ip.clone(),
         location: req.location.clone(),
         note: req.note.clone(),
@@ -1315,40 +853,41 @@ pub async fn create_logic_device(
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
-    // Create in nodeOrder SSoT
-    use crate::db::mongo::topology::NodeOrderEntry;
-    let entry = NodeOrderEntry {
+    // Create in user_object_detail SSoT
+    let detail = UserObjectDetail {
+        id: pseudo_mac.clone(),
         mac: pseudo_mac.clone(),
-        parent_mac,
-        depth: parent_depth + 1,
-        order: 0,
-        label: req.label,
+        lacis_id: None,
+        device_type: "NetworkDevice".to_string(),
+        parent_id,
+        sort_order: 0,
         node_type: "logic_device".to_string(),
+        state_type: "StaticOnline".to_string(),
+        label: req.label,
+        label_customized: false,
         ip: req.ip,
         hostname: None,
         source: "manual".to_string(),
         source_ref_id: Some(id.clone()),
-        status: "manual".to_string(),
-        state_type: "manual".to_string(),
         connection_type: "wired".to_string(),
-        lacis_id: None,
-        candidate_lacis_id: None,
         product_type: None,
+        product_code: None,
         network_device_type: Some(req.device_type),
+        candidate_lacis_id: None,
         fid: None,
         facility_name: None,
+        ssid: None,
         metadata: serde_json::json!({
             "location": &req.location,
             "note": &req.note,
             "logic_device_id": &id,
         }),
-        label_customized: false,
-        ssid: None,
+        aranea_lacis_id: None,
         created_at: now.clone(),
         updated_at: now,
     };
     mongo
-        .upsert_node_order(&entry)
+        .upsert_user_object_detail(&detail)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
@@ -1412,7 +951,6 @@ pub async fn update_logic_device(
 }
 
 /// DELETE /api/topology/logic-devices/:id — delete logic device (dangerous)
-/// Also removes from nodeOrder SSoT
 pub async fn delete_logic_device(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1432,15 +970,15 @@ pub async fn delete_logic_device(
 
     let mongo = &state.app_state.mongo;
 
-    // Find the pseudo-MAC for this logic device in nodeOrder
-    let entries = mongo.get_all_node_order().await.unwrap_or_default();
+    // Find the pseudo-MAC for this logic device in user_object_detail
+    let entries = mongo.get_all_user_object_details().await.unwrap_or_default();
     let node_entry = entries
         .iter()
-        .find(|e| e.source_ref_id.as_deref() == Some(&id));
+        .find(|e| e.source_ref_id.as_deref() == Some(&*id));
 
-    // Delete from nodeOrder if found
+    // Delete from user_object_detail if found
     if let Some(entry) = node_entry {
-        let _ = mongo.delete_node_order(&entry.mac).await;
+        let _ = mongo.delete_user_object_detail(&entry.id).await;
     }
 
     // Delete from cg_logic_devices
@@ -1480,13 +1018,11 @@ fn collect_descendants(
 }
 
 fn extract_ip_from_url(url: &str) -> String {
-    // Extract host:port or just host from URL like "http://192.168.3.242:3000"
     if let Ok(parsed) = url::Url::parse(url) {
         if let Some(host) = parsed.host_str() {
             return host.to_string();
         }
     }
-    // Fallback: try to extract IP directly
     url.replace("http://", "")
         .replace("https://", "")
         .split('/')
@@ -1496,16 +1032,4 @@ fn extract_ip_from_url(url: &str) -> String {
         .next()
         .unwrap_or(url)
         .to_string()
-}
-
-// Make RawEdge cloneable for site filter
-impl Clone for RawEdge {
-    fn clone(&self) -> Self {
-        RawEdge {
-            from: self.from.clone(),
-            to: self.to.clone(),
-            edge_type: self.edge_type.clone(),
-            label: self.label.clone(),
-        }
-    }
 }

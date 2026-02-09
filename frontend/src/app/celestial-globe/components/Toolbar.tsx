@@ -1,6 +1,6 @@
 'use client';
 
-import { Maximize, RefreshCw, LayoutGrid, Plus } from 'lucide-react';
+import { Maximize, RefreshCw, Plus } from 'lucide-react';
 import { useReactFlow } from 'reactflow';
 import { useTopologyStore } from '../stores/useTopologyStore';
 
@@ -9,8 +9,7 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ onAddLogicDevice }: ToolbarProps) {
-  const { fitView, zoomIn, zoomOut } = useReactFlow();
-  const recalcLayout = useTopologyStore(s => s.recalcLayout);
+  const { fitView } = useReactFlow();
   const loading = useTopologyStore(s => s.loading);
   const fetchTopology = useTopologyStore(s => s.fetchTopology);
 
@@ -26,9 +25,6 @@ export function Toolbar({ onAddLogicDevice }: ToolbarProps) {
       </button>
       <button className="cg-toolbar-btn" onClick={() => fitView({ padding: 0.2 })} title="Fit to view">
         <Maximize size={16} />
-      </button>
-      <button className="cg-toolbar-btn" onClick={() => recalcLayout()} title="Recalculate layout" disabled={loading}>
-        <LayoutGrid size={16} />
       </button>
       <button className="cg-toolbar-btn" onClick={onAddLogicDevice} title="Add LogicDevice">
         <Plus size={16} />

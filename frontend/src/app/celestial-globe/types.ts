@@ -7,12 +7,6 @@ import type { Node, Edge } from 'reactflow';
 // Backend API response types (mirrors Rust TopologyV2Response)
 // ============================================================================
 
-export interface Position {
-  x: number;
-  y: number;
-  pinned: boolean;
-}
-
 export interface TopologyNodeV2 {
   id: string;
   label: string;
@@ -21,14 +15,15 @@ export interface TopologyNodeV2 {
   ip?: string;
   source: DataSource;
   parent_id?: string;
+  order: number;
   lacis_id?: string;
   candidate_lacis_id?: string;
+  device_type?: string;
   product_type?: string;
   network_device_type?: string;
   status: string;
+  state_type: string;
   metadata: Record<string, unknown>;
-  // v2 additions
-  position: Position;
   collapsed: boolean;
   collapsed_child_count: number;
   descendant_count: number;
@@ -55,7 +50,6 @@ export interface TopologyMetadataV2 {
 
 export interface ViewConfig {
   collapsed_node_ids: string[];
-  last_layout_at: string;
 }
 
 export interface TopologyV2Response {
@@ -201,8 +195,6 @@ export interface TopologyStoreState {
 
   // Actions
   fetchTopology: () => Promise<void>;
-  recalcLayout: () => Promise<void>;
-  updateNodePosition: (nodeId: string, x: number, y: number) => Promise<void>;
   toggleCollapse: (nodeId: string) => Promise<void>;
   updateParent: (nodeId: string, newParentId: string) => Promise<void>;
   createLogicDevice: (req: CreateLogicDeviceRequest) => Promise<void>;

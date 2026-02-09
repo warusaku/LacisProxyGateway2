@@ -177,6 +177,7 @@ pub async fn poll_router(
     let syncer = crate::openwrt::OpenWrtSyncer::new(
         state.openwrt_manager.clone(),
         state.app_state.mongo.clone(),
+        state.app_state.mysql.clone(),
     );
 
     match syncer.poll_one(&id).await {

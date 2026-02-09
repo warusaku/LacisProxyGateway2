@@ -25,19 +25,20 @@ export const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: s
 // Node sizes by type (width x height)
 // ============================================================================
 
-// Node sizes (reference only — DeviceNode.tsx computes width dynamically: infra=200, client=160)
+// Node sizes — must match backend node_height() for layout consistency
+// Height = actual rendered height (padding + content + border) to prevent overlap
 export const NODE_SIZES: Record<NodeType, { width: number; height: number }> = {
-  internet:     { width: 160, height: 72 },
-  controller:   { width: 200, height: 100 },
-  gateway:      { width: 200, height: 80 },
-  router:       { width: 200, height: 80 },
-  switch:       { width: 200, height: 64 },
-  ap:           { width: 200, height: 64 },
-  client:       { width: 160, height: 52 },
-  wg_peer:      { width: 160, height: 52 },
-  logic_device: { width: 200, height: 60 },
-  external:     { width: 200, height: 72 },
-  lpg_server:   { width: 200, height: 80 },
+  internet:     { width: 160, height: 120 },
+  controller:   { width: 200, height: 110 },
+  gateway:      { width: 200, height: 110 },
+  router:       { width: 200, height: 110 },
+  switch:       { width: 200, height: 100 },
+  ap:           { width: 200, height: 100 },
+  client:       { width: 160, height: 94 },
+  wg_peer:      { width: 160, height: 94 },
+  logic_device: { width: 200, height: 94 },
+  external:     { width: 200, height: 100 },
+  lpg_server:   { width: 200, height: 110 },
 };
 
 // ============================================================================
@@ -82,14 +83,16 @@ export const EDGE_STYLES: Record<EdgeType, {
 // ============================================================================
 
 export const STATUS_COLORS: Record<string, string> = {
-  online:   '#10B981', // emerald
-  active:   '#10B981',
-  offline:  '#6B7280', // gray
-  inactive: '#6B7280',
-  warning:  '#F59E0B', // amber
-  error:    '#EF4444', // red
-  unknown:  '#9CA3AF', // gray-400
-  manual:   '#9CA3AF',
+  online:        '#10B981', // emerald
+  active:        '#10B981',
+  StaticOnline:  '#10B981', // emerald (admin forced online)
+  offline:       '#6B7280', // gray
+  inactive:      '#6B7280',
+  StaticOffline: '#9CA3AF', // gray-400 (admin forced offline / maintenance)
+  warning:       '#F59E0B', // amber
+  error:         '#EF4444', // red
+  unknown:       '#9CA3AF', // gray-400
+  manual:        '#9CA3AF',
 };
 
 // ============================================================================

@@ -39,7 +39,7 @@ pub async fn tool_sync_omada(
     let start = std::time::Instant::now();
 
     let syncer =
-        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone());
+        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone(), state.app_state.mysql.clone());
 
     let controller_ids = state.omada_manager.list_controller_ids().await;
     let mut results = Vec::new();
@@ -94,6 +94,7 @@ pub async fn tool_sync_openwrt(
     let syncer = crate::openwrt::OpenWrtSyncer::new(
         state.openwrt_manager.clone(),
         state.app_state.mongo.clone(),
+        state.app_state.mysql.clone(),
     );
 
     let router_ids = state.openwrt_manager.list_router_ids().await;
@@ -147,6 +148,7 @@ pub async fn tool_sync_external(
     let syncer = crate::external::ExternalSyncer::new(
         state.external_manager.clone(),
         state.app_state.mongo.clone(),
+        state.app_state.mysql.clone(),
     );
 
     let device_ids = state.external_manager.list_device_ids().await;

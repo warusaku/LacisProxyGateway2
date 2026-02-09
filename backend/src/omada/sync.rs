@@ -7,19 +7,20 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
-use crate::node_order::NodeOrderIngester;
+use crate::db::mysql::MySqlDb;
 use crate::omada::manager::OmadaManager;
+use crate::user_object_ingester::UserObjectIngester;
 
 /// Background synchronization service
 pub struct OmadaSyncer {
     manager: Arc<OmadaManager>,
     mongo: Arc<MongoDb>,
-    ingester: NodeOrderIngester,
+    ingester: UserObjectIngester,
 }
 
 impl OmadaSyncer {
-    pub fn new(manager: Arc<OmadaManager>, mongo: Arc<MongoDb>) -> Self {
-        let ingester = NodeOrderIngester::new(mongo.clone());
+    pub fn new(manager: Arc<OmadaManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
+        let ingester = UserObjectIngester::new(mongo.clone(), mysql);
         Self {
             manager,
             mongo,
@@ -160,10 +161,10 @@ impl OmadaSyncer {
             .update_omada_controller_status(controller_id, "connected", None)
             .await?;
 
-        // 5. Ingest into nodeOrder SSoT
+        // 5. Ingest into user_object_detail SSoT
         if let Err(e) = self.ingester.ingest_omada(controller_id).await {
             tracing::warn!(
-                "[OmadaSync] NodeOrder ingestion failed for controller {}: {}",
+                "[OmadaSync] UserObjectDetail ingestion failed for controller {}: {}",
                 controller_id,
                 e
             );

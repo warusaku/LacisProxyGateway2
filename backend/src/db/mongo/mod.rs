@@ -8,6 +8,7 @@ pub mod openwrt;
 pub mod operation_logs;
 mod security_events;
 pub mod topology;
+pub mod user_object_detail;
 
 use mongodb::bson::doc;
 use mongodb::{Client, Database};

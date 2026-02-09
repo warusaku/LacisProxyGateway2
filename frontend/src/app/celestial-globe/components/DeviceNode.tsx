@@ -57,7 +57,7 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
   const IconComponent = ICON_MAP[iconName] || Monitor;
   const statusColor = STATUS_COLORS[node.status] || STATUS_COLORS.unknown;
 
-  const isOffline = node.status === 'offline' || node.status === 'inactive';
+  const isOffline = node.status === 'offline' || node.status === 'inactive' || node.status === 'StaticOffline';
 
   // Inline label editing state
   const [editing, setEditing] = useState(false);
@@ -129,10 +129,10 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
         boxShadow: selected ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 1px 4px rgba(0, 0, 0, 0.3)',
       }}
     >
-      {/* mobes2.0 準拠: Handle target (top) — 親からのエッジ受信 */}
+      {/* Handle target (left) — 親からのエッジ受信（左→右ツリー） */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         style={{ background: statusColor, width: 8, height: 8 }}
       />
 
@@ -277,10 +277,10 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
         </button>
       )}
 
-      {/* mobes2.0 準拠: Handle source (bottom) — 子へのエッジ送出 */}
+      {/* Handle source (right) — 子へのエッジ送出（左→右ツリー） */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         style={{ background: statusColor, width: 8, height: 8 }}
       />
     </div>

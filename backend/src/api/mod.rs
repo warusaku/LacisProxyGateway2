@@ -264,18 +264,6 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/topology", get(handlers::get_topology))
         .route("/api/topology/v2", get(handlers::get_topology_v2))
         .route(
-            "/api/topology/layout",
-            post(handlers::recalc_topology_layout),
-        )
-        .route(
-            "/api/topology/nodes/batch-positions",
-            put(handlers::batch_update_positions),
-        )
-        .route(
-            "/api/topology/nodes/:id/position",
-            put(handlers::update_node_position),
-        )
-        .route(
             "/api/topology/nodes/:id/label",
             put(handlers::update_node_label).delete(handlers::delete_node_label),
         )

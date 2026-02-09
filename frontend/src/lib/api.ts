@@ -1058,24 +1058,6 @@ export const topologyV2Api = {
     return request<TopologyV2Response>(`/topology/v2${qs ? `?${qs}` : ''}`);
   },
 
-  recalcLayout: () =>
-    request<{ ok: boolean; message: string; nodes_positioned: number; last_layout_at: string }>(
-      '/topology/layout',
-      { method: 'POST' }
-    ),
-
-  updateNodePosition: (nodeId: string, x: number, y: number) =>
-    request<{ ok: boolean; node_id: string }>(
-      `/topology/nodes/${encodeURIComponent(nodeId)}/position`,
-      { method: 'PUT', body: JSON.stringify({ x, y }) }
-    ),
-
-  batchUpdatePositions: (positions: Array<{ node_id: string; x: number; y: number }>) =>
-    request<{ ok: boolean; updated_count: number }>(
-      '/topology/nodes/batch-positions',
-      { method: 'PUT', body: JSON.stringify({ positions }) }
-    ),
-
   updateNodeLabel: (nodeId: string, label: string) =>
     request<{ ok: boolean; node_id: string; label: string }>(
       `/topology/nodes/${encodeURIComponent(nodeId)}/label`,

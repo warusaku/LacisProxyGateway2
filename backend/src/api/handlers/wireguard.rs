@@ -102,6 +102,7 @@ pub async fn create_peer(
             let syncer = crate::omada::OmadaSyncer::new(
                 state.omada_manager.clone(),
                 state.app_state.mongo.clone(),
+                state.app_state.mysql.clone(),
             );
             let _ = syncer.sync_one(&req.controller_id).await;
 
@@ -151,6 +152,7 @@ pub async fn update_peer(
             let syncer = crate::omada::OmadaSyncer::new(
                 state.omada_manager.clone(),
                 state.app_state.mongo.clone(),
+                state.app_state.mysql.clone(),
             );
             let _ = syncer.sync_one(&req.controller_id).await;
 
@@ -200,6 +202,7 @@ pub async fn delete_peer(
             let syncer = crate::omada::OmadaSyncer::new(
                 state.omada_manager.clone(),
                 state.app_state.mongo.clone(),
+                state.app_state.mysql.clone(),
             );
             let _ = syncer.sync_one(&q.controller_id).await;
 

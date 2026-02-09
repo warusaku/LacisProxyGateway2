@@ -173,6 +173,7 @@ pub async fn poll_device(
     let syncer = crate::external::ExternalSyncer::new(
         state.external_manager.clone(),
         state.app_state.mongo.clone(),
+        state.app_state.mysql.clone(),
     );
 
     match syncer.poll_one(&id).await {

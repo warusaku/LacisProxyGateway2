@@ -16,6 +16,7 @@ mod lacis_id;
 mod models;
 mod node_order;
 mod notify;
+mod user_object_ingester;
 mod omada;
 mod openwrt;
 mod proxy;
@@ -128,6 +129,26 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("NodeOrder migration failed (non-fatal): {}", e),
     }
 
+    // Migrate cg_node_order → user_object_detail (one-time, if user_object_detail is empty)
+    match user_object_ingester::migrate_to_user_object_detail(&app_state.mongo).await {
+        Ok(()) => tracing::debug!("UserObjectDetail migration check complete"),
+        Err(e) => tracing::warn!("UserObjectDetail migration failed (non-fatal): {}", e),
+    }
+
+    // Ensure device_state_history table exists
+    match app_state.mysql.ensure_device_state_history_table().await {
+        Ok(()) => tracing::debug!("device_state_history table ready"),
+        Err(e) => tracing::warn!("device_state_history table creation failed (non-fatal): {}", e),
+    }
+
+    // Refresh araneaDevice cache (non-blocking, non-fatal)
+    if proxy_state.aranea_client.is_configured() {
+        match proxy_state.aranea_client.refresh_device_cache().await {
+            Ok(count) => tracing::info!("AraneaDevice cache loaded: {} devices", count),
+            Err(e) => tracing::warn!("AraneaDevice cache refresh failed (non-fatal): {}", e),
+        }
+    }
+
     // Start background tasks (use the same DdnsUpdater from proxy_state)
     start_background_tasks(
         app_state.clone(),
@@ -194,13 +215,13 @@ fn start_background_tasks(
     });
 
     // Omada syncer (60s interval, all controllers)
-    let omada_syncer = Arc::new(OmadaSyncer::new(omada_manager, app_state.mongo.clone()));
+    let omada_syncer = Arc::new(OmadaSyncer::new(omada_manager, app_state.mongo.clone(), app_state.mysql.clone()));
     tokio::spawn(async move {
         omada_syncer.start().await;
     });
 
     // OpenWrt syncer (30s interval, all routers)
-    let openwrt_syncer = Arc::new(OpenWrtSyncer::new(openwrt_manager, app_state.mongo.clone()));
+    let openwrt_syncer = Arc::new(OpenWrtSyncer::new(openwrt_manager, app_state.mongo.clone(), app_state.mysql.clone()));
     tokio::spawn(async move {
         openwrt_syncer.start().await;
     });
@@ -209,6 +230,7 @@ fn start_background_tasks(
     let external_syncer = Arc::new(ExternalSyncer::new(
         external_manager,
         app_state.mongo.clone(),
+        app_state.mysql.clone(),
     ));
     tokio::spawn(async move {
         external_syncer.start().await;

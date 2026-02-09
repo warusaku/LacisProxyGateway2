@@ -17,7 +17,7 @@
 
 import { memo } from 'react';
 import {
-  getBezierPath,
+  getSmoothStepPath,
   EdgeLabelRenderer,
   type EdgeProps,
 } from 'reactflow';
@@ -41,13 +41,14 @@ export const TopologyEdge = memo(({
   const style = EDGE_STYLES[connectionType] || EDGE_STYLES.wired;
   const animated = edgeData?.animated ?? connectionType === 'wireless';
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
   });
 
   // reactflow v11 の BaseEdge は className を受け付けないため、

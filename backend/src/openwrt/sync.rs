@@ -7,19 +7,20 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
-use crate::node_order::NodeOrderIngester;
+use crate::db::mysql::MySqlDb;
 use crate::openwrt::manager::OpenWrtManager;
+use crate::user_object_ingester::UserObjectIngester;
 
 /// Background synchronization service for OpenWrt/AsusWrt routers
 pub struct OpenWrtSyncer {
     manager: Arc<OpenWrtManager>,
     mongo: Arc<MongoDb>,
-    ingester: NodeOrderIngester,
+    ingester: UserObjectIngester,
 }
 
 impl OpenWrtSyncer {
-    pub fn new(manager: Arc<OpenWrtManager>, mongo: Arc<MongoDb>) -> Self {
-        let ingester = NodeOrderIngester::new(mongo.clone());
+    pub fn new(manager: Arc<OpenWrtManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
+        let ingester = UserObjectIngester::new(mongo.clone(), mysql);
         Self {
             manager,
             mongo,
@@ -107,10 +108,10 @@ impl OpenWrtSyncer {
             .upsert_openwrt_clients(router_id, &clients)
             .await?;
 
-        // 5. Ingest into nodeOrder SSoT
+        // 5. Ingest into user_object_detail SSoT
         if let Err(e) = self.ingester.ingest_openwrt(router_id).await {
             tracing::warn!(
-                "[OpenWrtSync] NodeOrder ingestion failed for router {}: {}",
+                "[OpenWrtSync] UserObjectDetail ingestion failed for router {}: {}",
                 router_id,
                 e
             );

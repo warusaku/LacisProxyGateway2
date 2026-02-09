@@ -251,8 +251,9 @@ export function PropertyPanel() {
           </div>
         )}
         <PropRow label="Descendants" value={String(node.descendant_count)} />
-        <PropRow label="Position" value={`${node.position.x.toFixed(0)}, ${node.position.y.toFixed(0)}`} />
-        <PropRow label="Pinned" value={node.position.pinned ? 'Yes' : 'No'} />
+        <PropRow label="Order" value={String(node.order)} />
+        <PropRow label="State" value={node.state_type} />
+        {node.device_type && <PropRow label="Device Type" value={node.device_type} />}
         <PropRow label="ID" value={node.id} mono copyable />
       </div>
 

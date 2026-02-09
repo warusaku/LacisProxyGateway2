@@ -3,6 +3,7 @@
 mod audit;
 mod blocked_ips;
 mod ddns;
+mod device_state;
 mod routes;
 mod settings;
 

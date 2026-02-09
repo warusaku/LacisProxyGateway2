@@ -4,15 +4,28 @@
 //! - araneaDeviceGate: device registration
 //! - deviceStateReport: device state querying
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 use crate::config::AraneaConfig;
+
+/// Cached araneaDevice entry: MAC → prefix-3 LacisID
+#[derive(Debug, Clone)]
+pub struct AraneaDeviceCacheEntry {
+    pub lacis_id: String, // prefix-3 LacisID (20 digits)
+    pub mac: String,      // normalized 12-digit uppercase HEX
+}
 
 /// AraneaClient holds tenant config and proxies requests to Cloud Functions
 #[derive(Clone)]
 pub struct AraneaClient {
     http_client: reqwest::Client,
     pub config: AraneaConfig,
+    /// MAC → araneaDevice LacisID cache (prefix-3). Updated on startup + every 60 min.
+    device_cache: Arc<RwLock<HashMap<String, AraneaDeviceCacheEntry>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -73,6 +86,7 @@ impl AraneaClient {
         Self {
             http_client,
             config,
+            device_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -177,6 +191,72 @@ impl AraneaClient {
                 serde_json::to_string(&body).unwrap_or_default()
             ))
         }
+    }
+
+    /// Refresh the MAC → araneaDevice cache by fetching all device states.
+    /// Called on startup and every 60 minutes.
+    pub async fn refresh_device_cache(&self) -> Result<usize, String> {
+        if !self.is_configured() {
+            return Ok(0);
+        }
+
+        let response = self.get_device_states(None).await?;
+
+        let mut new_cache = HashMap::new();
+
+        // Parse response: expected format is { "devices": [ { "lacisId": "3...", "mac": "..." }, ... ] }
+        // or similar array structure
+        if let Some(devices) = response.get("devices").and_then(|v| v.as_array()) {
+            for dev in devices {
+                let lacis_id = dev
+                    .get("lacisId")
+                    .or_else(|| dev.get("lacis_id"))
+                    .and_then(|v| v.as_str());
+                let mac = dev.get("mac").and_then(|v| v.as_str());
+
+                if let (Some(lid), Some(m)) = (lacis_id, mac) {
+                    // Only cache prefix-3 devices (araneaDevice)
+                    if lid.starts_with('3') && lid.len() == 20 {
+                        let normalized_mac = m
+                            .chars()
+                            .filter(|c| c.is_ascii_alphanumeric())
+                            .collect::<String>()
+                            .to_uppercase();
+                        if normalized_mac.len() == 12 {
+                            new_cache.insert(
+                                normalized_mac.clone(),
+                                AraneaDeviceCacheEntry {
+                                    lacis_id: lid.to_string(),
+                                    mac: normalized_mac,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let count = new_cache.len();
+        let mut cache = self.device_cache.write().await;
+        *cache = new_cache;
+
+        tracing::info!(
+            "[AraneaClient] Device cache refreshed: {} araneaDevices",
+            count
+        );
+        Ok(count)
+    }
+
+    /// Look up whether a MAC address corresponds to a registered araneaDevice.
+    /// Returns the prefix-3 LacisID if found.
+    pub async fn lookup_aranea_device(&self, mac: &str) -> Option<String> {
+        let normalized = mac
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_uppercase();
+        let cache = self.device_cache.read().await;
+        cache.get(&normalized).map(|entry| entry.lacis_id.clone())
     }
 
     /// Get aranea config summary (for frontend display)

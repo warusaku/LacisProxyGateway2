@@ -56,10 +56,10 @@ function InternetNodeComponent({ data, selected }: NodeProps<InternetNodeData>) 
         </div>
       )}
 
-      {/* Source handle ONLY (bottom) — target handle は意図的に無い */}
+      {/* Source handle ONLY (right) — target handle は意図的に無い */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         style={{ background: '#3B82F6', width: 10, height: 10 }}
       />
     </div>

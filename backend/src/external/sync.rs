@@ -7,20 +7,21 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
+use crate::db::mysql::MySqlDb;
 use crate::external::manager::{DeviceProtocol, ExternalDeviceManager};
 use crate::external::mercury::MercuryClient;
-use crate::node_order::NodeOrderIngester;
+use crate::user_object_ingester::UserObjectIngester;
 
 /// Background synchronization service for external devices
 pub struct ExternalSyncer {
     manager: Arc<ExternalDeviceManager>,
     mongo: Arc<MongoDb>,
-    ingester: NodeOrderIngester,
+    ingester: UserObjectIngester,
 }
 
 impl ExternalSyncer {
-    pub fn new(manager: Arc<ExternalDeviceManager>, mongo: Arc<MongoDb>) -> Self {
-        let ingester = NodeOrderIngester::new(mongo.clone());
+    pub fn new(manager: Arc<ExternalDeviceManager>, mongo: Arc<MongoDb>, mysql: Arc<MySqlDb>) -> Self {
+        let ingester = UserObjectIngester::new(mongo.clone(), mysql);
         Self {
             manager,
             mongo,
@@ -118,10 +119,10 @@ impl ExternalSyncer {
             .upsert_external_clients(device_id, &clients)
             .await?;
 
-        // Ingest into nodeOrder SSoT
+        // Ingest into user_object_detail SSoT
         if let Err(e) = self.ingester.ingest_external(device_id).await {
             tracing::warn!(
-                "[ExternalSync] NodeOrder ingestion failed for device {}: {}",
+                "[ExternalSync] UserObjectDetail ingestion failed for device {}: {}",
                 device_id,
                 e
             );
