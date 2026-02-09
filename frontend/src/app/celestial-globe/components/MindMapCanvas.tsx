@@ -18,6 +18,7 @@ import 'reactflow/dist/style.css';
 
 import { DeviceNode } from './DeviceNode';
 import { Toolbar } from './Toolbar';
+import { Legend } from './Legend';
 import { useTopologyStore } from '../stores/useTopologyStore';
 import { EDGE_STYLES } from '../constants';
 import type { TopologyNodeV2, TopologyEdgeV2, DeviceNodeData, EdgeType } from '../types';
@@ -51,7 +52,7 @@ function toFlowEdges(topoEdges: TopologyEdgeV2[]): Edge[] {
       id: `edge-${i}-${e.from}-${e.to}`,
       source: e.from,
       target: e.to,
-      type: 'default',
+      type: 'smoothstep',
       label: e.label || undefined,
       style: {
         stroke: style.color,
@@ -143,6 +144,7 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
         />
       </ReactFlow>
       <Toolbar onAddLogicDevice={onAddLogicDevice} />
+      <Legend />
     </div>
   );
 }

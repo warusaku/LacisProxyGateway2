@@ -188,6 +188,66 @@ pub struct UpdateLogicDeviceRequest {
 }
 
 // ============================================================================
+// Helper: Format MAC address with colons (e.g., "AABBCCDDEEFF" → "AA:BB:CC:DD:EE:FF")
+// ============================================================================
+
+fn format_mac(mac: &str) -> String {
+    let clean: String = mac.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if clean.len() == 12 {
+        clean
+            .as_bytes()
+            .chunks(2)
+            .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
+            .collect::<Vec<&str>>()
+            .join(":")
+    } else {
+        mac.to_string() // Already formatted or non-standard
+    }
+}
+
+/// Build a human-friendly label for client nodes.
+/// Priority: name → hostname → vendor + short MAC → formatted MAC
+fn client_label(
+    name: &Option<String>,
+    hostname: &Option<String>,
+    vendor: &Option<String>,
+    mac: &str,
+) -> String {
+    if let Some(n) = name {
+        if !n.is_empty() {
+            return n.clone();
+        }
+    }
+    if let Some(h) = hostname {
+        if !h.is_empty() {
+            return h.clone();
+        }
+    }
+    // Vendor + short MAC suffix (last 6 chars) for readability
+    let short_mac = if mac.len() >= 6 {
+        &mac[mac.len() - 6..]
+    } else {
+        mac
+    };
+    let formatted_short = if short_mac.len() == 6 {
+        format!(
+            "{}:{}:{}",
+            &short_mac[0..2],
+            &short_mac[2..4],
+            &short_mac[4..6]
+        )
+    } else {
+        short_mac.to_string()
+    };
+    if let Some(v) = vendor {
+        if !v.is_empty() {
+            return format!("{} ({})", v, formatted_short);
+        }
+    }
+    format_mac(mac)
+}
+
+// ============================================================================
 // Internal node builder (shared between v1 and v2)
 // ============================================================================
 
@@ -290,7 +350,7 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
             id: node_id.clone(),
             label: dev.name.clone(),
             node_type: dev.device_type.clone(),
-            mac: Some(dev.mac.clone()),
+            mac: Some(format_mac(&dev.mac)),
             ip: dev.ip.clone(),
             source: "omada".to_string(),
             parent_id: Some(format!("omada:{}:ctrl", dev.controller_id)),
@@ -352,11 +412,9 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
 
         nodes.push(RawNode {
             id: node_id.clone(),
-            label: cli.name.clone()
-                .or_else(|| cli.host_name.clone())
-                .unwrap_or_else(|| cli.mac.clone()),
+            label: client_label(&cli.name, &cli.host_name, &cli.vendor, &cli.mac),
             node_type: "client".to_string(),
-            mac: Some(cli.mac.clone()),
+            mac: Some(format_mac(&cli.mac)),
             ip: cli.ip.clone(),
             source: "omada".to_string(),
             parent_id: Some(parent_id.clone()),
@@ -468,7 +526,7 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
             id: node_id.clone(),
             label: router.display_name.clone(),
             node_type: "router".to_string(),
-            mac: Some(router.mac.clone()),
+            mac: Some(format_mac(&router.mac)),
             ip: Some(router.ip.clone()),
             source: "openwrt".to_string(),
             parent_id: omada_parent.clone(),
@@ -513,9 +571,9 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
 
         nodes.push(RawNode {
             id: node_id.clone(),
-            label: cli.hostname.clone().unwrap_or_else(|| cli.mac.clone()),
+            label: client_label(&cli.hostname, &None, &None, &cli.mac),
             node_type: "client".to_string(),
-            mac: Some(cli.mac.clone()),
+            mac: Some(format_mac(&cli.mac)),
             ip: Some(cli.ip.clone()),
             source: "openwrt".to_string(),
             parent_id: Some(parent_id.clone()),
@@ -580,7 +638,7 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
             id: node_id.clone(),
             label: dev.display_name.clone(),
             node_type: "external".to_string(),
-            mac: Some(dev.mac.clone()),
+            mac: Some(format_mac(&dev.mac)),
             ip: Some(dev.ip.clone()),
             source: "external".to_string(),
             parent_id: omada_parent.clone(),
@@ -621,9 +679,9 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
 
         nodes.push(RawNode {
             id: node_id.clone(),
-            label: cli.hostname.clone().unwrap_or_else(|| cli.mac.clone()),
+            label: client_label(&cli.hostname, &None, &None, &cli.mac),
             node_type: "client".to_string(),
-            mac: Some(cli.mac.clone()),
+            mac: Some(format_mac(&cli.mac)),
             ip: cli.ip.clone(),
             source: "external".to_string(),
             parent_id: Some(parent_id.clone()),
@@ -688,41 +746,142 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
 }
 
 // ============================================================================
-// Layout algorithm (mindmap-style)
+// Layout algorithm (mindmap-style, subtree-height-aware)
 // ============================================================================
 
+/// Vertical spacing between leaf nodes (minimum gap)
+const LEAF_V_GAP: f64 = 60.0;
+/// Extra vertical padding between subtrees of infrastructure nodes (switch/ap/router/gateway)
+const SUBTREE_V_PAD: f64 = 24.0;
+/// Horizontal spacing per depth level
+const H_SPACING_INFRA: f64 = 300.0;
+const H_SPACING_CLIENT: f64 = 240.0;
+
+/// Node height estimate for layout purposes (matches frontend NODE_SIZES roughly)
+fn node_height(node_type: &str) -> f64 {
+    match node_type {
+        "controller" | "lpg_server" => 100.0,
+        "gateway" | "router" => 80.0,
+        "switch" | "ap" | "external" => 64.0,
+        "client" | "wg_peer" | "logic_device" => 52.0,
+        _ => 52.0,
+    }
+}
+
+fn h_spacing_for(node_type: &str) -> f64 {
+    match node_type {
+        "client" | "wg_peer" => H_SPACING_CLIENT,
+        _ => H_SPACING_INFRA,
+    }
+}
+
+fn is_infra(node_type: &str) -> bool {
+    matches!(node_type, "controller" | "gateway" | "router" | "switch" | "ap" | "lpg_server" | "external" | "logic_device")
+}
+
+/// Compute the total vertical extent of a subtree rooted at `node_id`.
+/// Returns the total height that this subtree occupies.
+fn subtree_height(
+    node_id: &str,
+    node_type_map: &HashMap<String, String>,
+    children_map: &HashMap<String, Vec<String>>,
+    pinned_positions: &HashMap<String, NodePosition>,
+) -> f64 {
+    let self_h = node_type_map.get(node_id).map(|t| node_height(t)).unwrap_or(52.0);
+
+    // Pinned nodes: their subtree doesn't contribute to automatic layout sizing
+    if let Some(pos) = pinned_positions.get(node_id) {
+        if pos.pinned {
+            return self_h;
+        }
+    }
+
+    let Some(kids) = children_map.get(node_id) else {
+        return self_h; // leaf node
+    };
+    if kids.is_empty() {
+        return self_h;
+    }
+
+    // Sum of children subtree heights + gaps between them
+    let mut total: f64 = 0.0;
+    for (i, kid_id) in kids.iter().enumerate() {
+        let kid_h = subtree_height(kid_id, node_type_map, children_map, pinned_positions);
+        total += kid_h;
+        if i > 0 {
+            // Add gap between siblings
+            let kid_is_infra = node_type_map.get(kid_id).map(|t| is_infra(t)).unwrap_or(false);
+            total += if kid_is_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+        }
+    }
+
+    // The subtree height is at least the node's own height
+    total.max(self_h)
+}
+
 fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) -> Vec<NodePosition> {
-    // Build tree: parent_id → children
-    let mut children: HashMap<String, Vec<&RawNode>> = HashMap::new();
+    // Build tree structures
+    let mut children_ids: HashMap<String, Vec<String>> = HashMap::new();
+    let mut children_nodes: HashMap<String, Vec<&RawNode>> = HashMap::new();
+    let mut node_type_map: HashMap<String, String> = HashMap::new();
     let mut root_nodes: Vec<&RawNode> = Vec::new();
 
     for node in nodes {
+        node_type_map.insert(node.id.clone(), node.node_type.clone());
         if let Some(ref pid) = node.parent_id {
-            children.entry(pid.clone()).or_default().push(node);
+            children_ids.entry(pid.clone()).or_default().push(node.id.clone());
+            children_nodes.entry(pid.clone()).or_default().push(node);
         } else {
             root_nodes.push(node);
         }
     }
 
+    // Sort children: infrastructure nodes first (switch/ap/router), then clients
+    // This groups network devices together visually
+    for kids in children_nodes.values_mut() {
+        kids.sort_by(|a, b| {
+            let a_infra = is_infra(&a.node_type);
+            let b_infra = is_infra(&b.node_type);
+            b_infra.cmp(&a_infra).then_with(|| a.label.cmp(&b.label))
+        });
+    }
+    // Also sort children_ids to match
+    for (pid, kid_ids) in children_ids.iter_mut() {
+        if let Some(sorted_nodes) = children_nodes.get(pid.as_str()) {
+            *kid_ids = sorted_nodes.iter().map(|n| n.id.clone()).collect();
+        }
+    }
+
     let mut result: Vec<NodePosition> = Vec::new();
 
-    // Position root nodes vertically centered
-    let root_spacing = 400.0;
-    let total_root_height = (root_nodes.len() as f64 - 1.0) * root_spacing;
-    let start_y = -total_root_height / 2.0;
+    // Compute total root subtree heights
+    let root_heights: Vec<f64> = root_nodes
+        .iter()
+        .map(|r| subtree_height(&r.id, &node_type_map, &children_ids, positions))
+        .collect();
+    let total_root_h: f64 = root_heights.iter().sum::<f64>()
+        + (root_nodes.len().saturating_sub(1) as f64) * (LEAF_V_GAP + SUBTREE_V_PAD);
+    let mut cursor_y = -total_root_h / 2.0;
 
     for (i, root) in root_nodes.iter().enumerate() {
-        // If pinned, use stored position
+        let st_h = root_heights[i];
+
+        // Pinned root: use stored position
         if let Some(stored) = positions.get(&root.id) {
             if stored.pinned {
                 result.push(stored.clone());
-                layout_subtree(&root.id, stored.x, stored.y, &children, positions, &mut result, 1);
+                layout_subtree_v2(
+                    &root.id, stored.x, stored.y,
+                    &children_nodes, &children_ids, &node_type_map,
+                    positions, &mut result,
+                );
+                cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
                 continue;
             }
         }
 
         let x = 0.0;
-        let y = start_y + (i as f64) * root_spacing;
+        let y = cursor_y + st_h / 2.0; // center of this subtree extent
         result.push(NodePosition {
             node_id: root.id.clone(),
             x,
@@ -730,43 +889,83 @@ fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) 
             pinned: false,
         });
 
-        layout_subtree(&root.id, x, y, &children, positions, &mut result, 1);
+        layout_subtree_v2(
+            &root.id, x, y,
+            &children_nodes, &children_ids, &node_type_map,
+            positions, &mut result,
+        );
+
+        cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
     }
 
     result
 }
 
-fn layout_subtree(
+/// Layout children of `parent_id` using subtree-height-aware cumulative offset.
+/// Each child is positioned at parent_x + h_spacing, with Y determined by
+/// the cumulative sum of preceding sibling subtree heights.
+fn layout_subtree_v2(
     parent_id: &str,
     parent_x: f64,
     parent_y: f64,
-    children_map: &HashMap<String, Vec<&RawNode>>,
+    children_nodes: &HashMap<String, Vec<&RawNode>>,
+    children_ids: &HashMap<String, Vec<String>>,
+    node_type_map: &HashMap<String, String>,
     pinned_positions: &HashMap<String, NodePosition>,
     result: &mut Vec<NodePosition>,
-    depth: usize,
 ) {
-    let Some(kids) = children_map.get(parent_id) else {
+    let Some(kids) = children_nodes.get(parent_id) else {
         return;
     };
+    if kids.is_empty() {
+        return;
+    }
 
-    let h_spacing = 300.0;
-    let v_spacing = if depth > 2 { 80.0 } else { 120.0 };
+    // Compute subtree heights for each child
+    let kid_heights: Vec<f64> = kids
+        .iter()
+        .map(|k| subtree_height(&k.id, node_type_map, children_ids, pinned_positions))
+        .collect();
 
-    let total_height = (kids.len() as f64 - 1.0) * v_spacing;
-    let start_y = parent_y - total_height / 2.0;
-    let child_x = parent_x + h_spacing;
+    // Total height = sum of subtree heights + gaps
+    let mut total_h: f64 = 0.0;
+    for (i, h) in kid_heights.iter().enumerate() {
+        total_h += h;
+        if i > 0 {
+            let kid_infra = is_infra(&kids[i].node_type);
+            total_h += if kid_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+        }
+    }
+
+    // Start Y: center children block around parent_y
+    let mut cursor_y = parent_y - total_h / 2.0;
 
     for (i, kid) in kids.iter().enumerate() {
-        // If pinned, use stored position
+        let st_h = kid_heights[i];
+        let child_x = parent_x + h_spacing_for(&kid.node_type);
+
+        // Add gap before non-first siblings
+        if i > 0 {
+            let kid_infra = is_infra(&kid.node_type);
+            cursor_y += if kid_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+        }
+
+        // Pinned: use stored position
         if let Some(stored) = pinned_positions.get(&kid.id) {
             if stored.pinned {
                 result.push(stored.clone());
-                layout_subtree(&kid.id, stored.x, stored.y, children_map, pinned_positions, result, depth + 1);
+                layout_subtree_v2(
+                    &kid.id, stored.x, stored.y,
+                    children_nodes, children_ids, node_type_map,
+                    pinned_positions, result,
+                );
+                cursor_y += st_h;
                 continue;
             }
         }
 
-        let y = start_y + (i as f64) * v_spacing;
+        // Center this child within its subtree extent
+        let y = cursor_y + st_h / 2.0;
         result.push(NodePosition {
             node_id: kid.id.clone(),
             x: child_x,
@@ -774,7 +973,13 @@ fn layout_subtree(
             pinned: false,
         });
 
-        layout_subtree(&kid.id, child_x, y, children_map, pinned_positions, result, depth + 1);
+        layout_subtree_v2(
+            &kid.id, child_x, y,
+            children_nodes, children_ids, node_type_map,
+            pinned_positions, result,
+        );
+
+        cursor_y += st_h;
     }
 }
 

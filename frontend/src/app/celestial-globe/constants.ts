@@ -24,17 +24,18 @@ export const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: s
 // Node sizes by type (width x height)
 // ============================================================================
 
+// Node sizes (reference only — DeviceNode.tsx computes width dynamically: infra=200, client=160)
 export const NODE_SIZES: Record<NodeType, { width: number; height: number }> = {
-  controller:   { width: 200, height: 120 },
-  gateway:      { width: 180, height: 96 },
-  router:       { width: 180, height: 96 },
-  switch:       { width: 160, height: 80 },
-  ap:           { width: 140, height: 72 },
-  client:       { width: 120, height: 48 },
-  wg_peer:      { width: 130, height: 60 },
-  logic_device: { width: 150, height: 60 },
-  external:     { width: 150, height: 72 },
-  lpg_server:   { width: 180, height: 96 },
+  controller:   { width: 200, height: 100 },
+  gateway:      { width: 200, height: 80 },
+  router:       { width: 200, height: 80 },
+  switch:       { width: 200, height: 64 },
+  ap:           { width: 200, height: 64 },
+  client:       { width: 160, height: 52 },
+  wg_peer:      { width: 160, height: 52 },
+  logic_device: { width: 200, height: 60 },
+  external:     { width: 200, height: 72 },
+  lpg_server:   { width: 200, height: 80 },
 };
 
 // ============================================================================
