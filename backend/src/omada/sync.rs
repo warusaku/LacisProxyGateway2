@@ -7,17 +7,24 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
+use crate::node_order::NodeOrderIngester;
 use crate::omada::manager::OmadaManager;
 
 /// Background synchronization service
 pub struct OmadaSyncer {
     manager: Arc<OmadaManager>,
     mongo: Arc<MongoDb>,
+    ingester: NodeOrderIngester,
 }
 
 impl OmadaSyncer {
     pub fn new(manager: Arc<OmadaManager>, mongo: Arc<MongoDb>) -> Self {
-        Self { manager, mongo }
+        let ingester = NodeOrderIngester::new(mongo.clone());
+        Self {
+            manager,
+            mongo,
+            ingester,
+        }
     }
 
     /// Start the background sync loop (runs forever)
@@ -41,10 +48,7 @@ impl OmadaSyncer {
             return;
         }
 
-        tracing::debug!(
-            "[OmadaSync] Syncing {} controllers",
-            controller_ids.len()
-        );
+        tracing::debug!("[OmadaSync] Syncing {} controllers", controller_ids.len());
 
         for id in controller_ids {
             if let Err(e) = self.sync_controller(&id).await {
@@ -75,10 +79,7 @@ impl OmadaSyncer {
         if let Ok(Some(mut ctrl_doc)) = self.mongo.get_omada_controller(controller_id).await {
             let mut updated_sites = Vec::new();
             for site in &sites {
-                let existing = ctrl_doc
-                    .sites
-                    .iter()
-                    .find(|s| s.site_id == site.site_id);
+                let existing = ctrl_doc.sites.iter().find(|s| s.site_id == site.site_id);
 
                 updated_sites.push(crate::db::mongo::omada::OmadaSiteMapping {
                     site_id: site.site_id.clone(),
@@ -158,6 +159,15 @@ impl OmadaSyncer {
         self.mongo
             .update_omada_controller_status(controller_id, "connected", None)
             .await?;
+
+        // 5. Ingest into nodeOrder SSoT
+        if let Err(e) = self.ingester.ingest_omada(controller_id).await {
+            tracing::warn!(
+                "[OmadaSync] NodeOrder ingestion failed for controller {}: {}",
+                controller_id,
+                e
+            );
+        }
 
         tracing::debug!(
             "[OmadaSync] Controller {} synced: {} devices, {} clients, {} wg_peers",

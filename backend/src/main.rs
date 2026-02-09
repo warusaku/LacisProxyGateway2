@@ -14,6 +14,7 @@ mod geoip;
 mod health;
 mod lacis_id;
 mod models;
+mod node_order;
 mod notify;
 mod omada;
 mod openwrt;
@@ -95,7 +96,10 @@ async fn main() -> anyhow::Result<()> {
     // Initialize AraneaClient for mobes2.0 Cloud Functions proxy
     let aranea_client = Arc::new(aranea::AraneaClient::new(config.aranea));
     if aranea_client.is_configured() {
-        tracing::info!("AraneaClient configured (tid: {})", aranea_client.config.tid);
+        tracing::info!(
+            "AraneaClient configured (tid: {})",
+            aranea_client.config.tid
+        );
     } else {
         tracing::info!("AraneaClient not configured (no aranea section in config)");
     }
@@ -117,6 +121,12 @@ async fn main() -> anyhow::Result<()> {
         "Proxy router initialized with {} active routes",
         route_count
     );
+
+    // Migrate to nodeOrder SSoT (one-time, if cg_node_order is empty)
+    match node_order::migrate_to_node_order(&app_state.mongo).await {
+        Ok(()) => tracing::debug!("NodeOrder migration check complete"),
+        Err(e) => tracing::warn!("NodeOrder migration failed (non-fatal): {}", e),
+    }
 
     // Start background tasks (use the same DdnsUpdater from proxy_state)
     start_background_tasks(
@@ -184,19 +194,13 @@ fn start_background_tasks(
     });
 
     // Omada syncer (60s interval, all controllers)
-    let omada_syncer = Arc::new(OmadaSyncer::new(
-        omada_manager,
-        app_state.mongo.clone(),
-    ));
+    let omada_syncer = Arc::new(OmadaSyncer::new(omada_manager, app_state.mongo.clone()));
     tokio::spawn(async move {
         omada_syncer.start().await;
     });
 
     // OpenWrt syncer (30s interval, all routers)
-    let openwrt_syncer = Arc::new(OpenWrtSyncer::new(
-        openwrt_manager,
-        app_state.mongo.clone(),
-    ));
+    let openwrt_syncer = Arc::new(OpenWrtSyncer::new(openwrt_manager, app_state.mongo.clone()));
     tokio::spawn(async move {
         openwrt_syncer.start().await;
     });

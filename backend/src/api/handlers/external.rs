@@ -11,8 +11,8 @@ use serde::Deserialize;
 
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
 use crate::external::ExternalDeviceManager;
+use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
 use crate::proxy::ProxyState;
 
 // ============================================================================
@@ -145,9 +145,7 @@ pub async fn delete_device(
 }
 
 /// POST /api/external/devices/test - Test device connection
-pub async fn test_device_connection(
-    Json(req): Json<TestDeviceRequest>,
-) -> Json<serde_json::Value> {
+pub async fn test_device_connection(Json(req): Json<TestDeviceRequest>) -> Json<serde_json::Value> {
     match ExternalDeviceManager::test_connection(
         &req.ip,
         &req.protocol,

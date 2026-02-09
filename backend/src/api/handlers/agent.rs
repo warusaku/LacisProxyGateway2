@@ -89,7 +89,12 @@ pub async fn get_agent_context(
 
     // Collect requested sections
     let routes = if sections.contains(&"routes".to_string()) {
-        let r = state.app_state.mysql.list_routes().await.unwrap_or_default();
+        let r = state
+            .app_state
+            .mysql
+            .list_routes()
+            .await
+            .unwrap_or_default();
         Some(serde_json::to_value(r).unwrap_or_default())
     } else {
         None
@@ -206,7 +211,12 @@ pub async fn get_agent_context(
     };
 
     let settings = if sections.contains(&"settings".to_string()) {
-        let s = state.app_state.mysql.list_settings().await.unwrap_or_default();
+        let s = state
+            .app_state
+            .mysql
+            .list_settings()
+            .await
+            .unwrap_or_default();
         // Mask Discord webhook URL
         let masked: Vec<_> = s
             .into_iter()
@@ -255,42 +265,112 @@ fn build_endpoint_list(permission: i32) -> Vec<EndpointInfo> {
         ep("GET", "/api/routes", 0, "List proxy routes"),
         ep("GET", "/api/routes/:id", 0, "Get single route"),
         ep("GET", "/api/routes/status", 0, "All routes health status"),
-        ep("GET", "/api/routes/:id/status", 0, "Single route health status"),
+        ep(
+            "GET",
+            "/api/routes/:id/status",
+            0,
+            "Single route health status",
+        ),
         ep("GET", "/api/routes/:id/logs", 0, "Route access logs"),
         ep("GET", "/api/server-routes", 0, "Routes with subnet info"),
         // DDNS
         ep("GET", "/api/ddns", 0, "List DDNS configurations"),
         ep("GET", "/api/ddns/:id", 0, "Get single DDNS config"),
-        ep("GET", "/api/ddns/integrated", 0, "DDNS with Omada WAN IP comparison"),
-        ep("GET", "/api/ddns/:id/port-forwards", 0, "Port forwarding rules for DDNS"),
+        ep(
+            "GET",
+            "/api/ddns/integrated",
+            0,
+            "DDNS with Omada WAN IP comparison",
+        ),
+        ep(
+            "GET",
+            "/api/ddns/:id/port-forwards",
+            0,
+            "Port forwarding rules for DDNS",
+        ),
         // Security
         ep("GET", "/api/security/blocked-ips", 0, "List blocked IPs"),
         ep("GET", "/api/security/events", 0, "List security events"),
-        ep("GET", "/api/security/events/ip/:ip", 0, "Security events by IP"),
-        ep("GET", "/api/security/events/search", 0, "Advanced security event search"),
+        ep(
+            "GET",
+            "/api/security/events/ip/:ip",
+            0,
+            "Security events by IP",
+        ),
+        ep(
+            "GET",
+            "/api/security/events/search",
+            0,
+            "Advanced security event search",
+        ),
         // Settings
         ep("GET", "/api/settings", 0, "List all settings"),
         ep("GET", "/api/settings/restart", 0, "Get restart settings"),
         // Dashboard
         ep("GET", "/api/dashboard/stats", 0, "Dashboard statistics"),
         ep("GET", "/api/dashboard/access-log", 0, "Access log entries"),
-        ep("GET", "/api/dashboard/access-log/filter", 0, "Filtered access log"),
-        ep("GET", "/api/dashboard/access-log/search", 0, "Advanced access log search"),
-        ep("GET", "/api/dashboard/access-log/export", 0, "Export access log CSV"),
+        ep(
+            "GET",
+            "/api/dashboard/access-log/filter",
+            0,
+            "Filtered access log",
+        ),
+        ep(
+            "GET",
+            "/api/dashboard/access-log/search",
+            0,
+            "Advanced access log search",
+        ),
+        ep(
+            "GET",
+            "/api/dashboard/access-log/export",
+            0,
+            "Export access log CSV",
+        ),
         ep("GET", "/api/dashboard/health", 0, "Health status"),
-        ep("GET", "/api/dashboard/status-distribution", 0, "HTTP status distribution"),
-        ep("GET", "/api/dashboard/hourly-stats", 0, "Hourly request stats"),
+        ep(
+            "GET",
+            "/api/dashboard/status-distribution",
+            0,
+            "HTTP status distribution",
+        ),
+        ep(
+            "GET",
+            "/api/dashboard/hourly-stats",
+            0,
+            "Hourly request stats",
+        ),
         ep("GET", "/api/dashboard/top-ips", 0, "Top IP addresses"),
         ep("GET", "/api/dashboard/top-paths", 0, "Top request paths"),
         ep("GET", "/api/dashboard/error-summary", 0, "Error summary"),
-        ep("GET", "/api/dashboard/ssl-status", 0, "SSL certificate status"),
-        ep("GET", "/api/dashboard/server-health", 0, "Server health metrics"),
+        ep(
+            "GET",
+            "/api/dashboard/ssl-status",
+            0,
+            "SSL certificate status",
+        ),
+        ep(
+            "GET",
+            "/api/dashboard/server-health",
+            0,
+            "Server health metrics",
+        ),
         // Omada
         ep("GET", "/api/omada/controllers", 0, "List Omada controllers"),
-        ep("GET", "/api/omada/controllers/:id", 0, "Get single controller"),
+        ep(
+            "GET",
+            "/api/omada/controllers/:id",
+            0,
+            "Get single controller",
+        ),
         ep("GET", "/api/omada/devices", 0, "List Omada devices"),
         ep("GET", "/api/omada/clients", 0, "List Omada clients"),
-        ep("GET", "/api/omada/wireguard", 0, "List Omada WireGuard peers"),
+        ep(
+            "GET",
+            "/api/omada/wireguard",
+            0,
+            "List Omada WireGuard peers",
+        ),
         ep("GET", "/api/omada/summary", 0, "Omada network summary"),
         ep("GET", "/api/omada/status", 0, "Legacy network status"),
         // OpenWrt
@@ -302,86 +382,288 @@ fn build_endpoint_list(permission: i32) -> Vec<EndpointInfo> {
         ep("GET", "/api/external/devices", 0, "List external devices"),
         ep("GET", "/api/external/devices/:id", 0, "Get single device"),
         ep("GET", "/api/external/clients", 0, "List external clients"),
-        ep("GET", "/api/external/summary", 0, "External devices summary"),
+        ep(
+            "GET",
+            "/api/external/summary",
+            0,
+            "External devices summary",
+        ),
         // WireGuard
         ep("GET", "/api/wireguard/peers", 0, "List WireGuard peers"),
-        ep("GET", "/api/wireguard/interfaces", 0, "List WireGuard interfaces"),
+        ep(
+            "GET",
+            "/api/wireguard/interfaces",
+            0,
+            "List WireGuard interfaces",
+        ),
         // Aranea
         ep("GET", "/api/aranea/devices", 0, "List aranea devices"),
-        ep("GET", "/api/aranea/devices/:lacis_id/state", 0, "Get device state"),
+        ep(
+            "GET",
+            "/api/aranea/devices/:lacis_id/state",
+            0,
+            "Get device state",
+        ),
         ep("GET", "/api/aranea/summary", 0, "Aranea config summary"),
         // LacisID
         ep("GET", "/api/lacis-id/candidates", 0, "LacisID candidates"),
         // Topology
-        ep("GET", "/api/topology", 0, "Network topology (CelestialGlobe)"),
+        ep(
+            "GET",
+            "/api/topology",
+            0,
+            "Network topology (CelestialGlobe)",
+        ),
         // Audit & logs
         ep("GET", "/api/audit", 0, "Audit logs"),
         ep("GET", "/api/logs/operations", 0, "Operation logs"),
-        ep("GET", "/api/logs/operations/summary", 0, "Operation logs summary"),
+        ep(
+            "GET",
+            "/api/logs/operations/summary",
+            0,
+            "Operation logs summary",
+        ),
         ep("GET", "/api/my-ip", 0, "Detect client/server IP"),
         // Nginx (read)
         ep("GET", "/api/nginx/status", 0, "Nginx status"),
         ep("GET", "/api/nginx/config", 0, "Nginx config content"),
-        ep("GET", "/api/nginx/template-settings", 0, "Nginx template settings"),
+        ep(
+            "GET",
+            "/api/nginx/template-settings",
+            0,
+            "Nginx template settings",
+        ),
         // Agent
-        ep("GET", "/api/agent/context", 0, "Agent context (this endpoint)"),
-
+        ep(
+            "GET",
+            "/api/agent/context",
+            0,
+            "Agent context (this endpoint)",
+        ),
         // ======== Operate (>= 50) — sync triggers, diagnostics, network tools ========
         ep("POST", "/api/tools/sync/omada", 50, "Trigger Omada sync"),
-        ep("POST", "/api/tools/sync/openwrt", 50, "Trigger OpenWrt sync"),
-        ep("POST", "/api/tools/sync/external", 50, "Trigger External sync"),
-        ep("POST", "/api/tools/ddns/update-all", 50, "Trigger all DDNS updates"),
-        ep("POST", "/api/tools/network/ping", 50, "Ping host from server"),
+        ep(
+            "POST",
+            "/api/tools/sync/openwrt",
+            50,
+            "Trigger OpenWrt sync",
+        ),
+        ep(
+            "POST",
+            "/api/tools/sync/external",
+            50,
+            "Trigger External sync",
+        ),
+        ep(
+            "POST",
+            "/api/tools/ddns/update-all",
+            50,
+            "Trigger all DDNS updates",
+        ),
+        ep(
+            "POST",
+            "/api/tools/network/ping",
+            50,
+            "Ping host from server",
+        ),
         ep("POST", "/api/tools/network/dns", 50, "DNS lookup"),
-        ep("POST", "/api/tools/diagnostics", 50, "Run system diagnostics"),
-        ep("POST", "/api/ddns/:id/update", 50, "Trigger single DDNS update"),
-        ep("POST", "/api/omada/controllers/:id/sync", 50, "Sync single Omada controller"),
-        ep("POST", "/api/openwrt/routers/:id/poll", 50, "Poll single OpenWrt router"),
-        ep("POST", "/api/external/devices/:id/poll", 50, "Poll single external device"),
+        ep(
+            "POST",
+            "/api/tools/diagnostics",
+            50,
+            "Run system diagnostics",
+        ),
+        ep(
+            "POST",
+            "/api/ddns/:id/update",
+            50,
+            "Trigger single DDNS update",
+        ),
+        ep(
+            "POST",
+            "/api/omada/controllers/:id/sync",
+            50,
+            "Sync single Omada controller",
+        ),
+        ep(
+            "POST",
+            "/api/openwrt/routers/:id/poll",
+            50,
+            "Poll single OpenWrt router",
+        ),
+        ep(
+            "POST",
+            "/api/external/devices/:id/poll",
+            50,
+            "Poll single external device",
+        ),
         // Connection tests (no permission, read-only side effect)
-        ep("POST", "/api/omada/controllers/test", 0, "Test Omada connection (pre-registration)"),
+        ep(
+            "POST",
+            "/api/omada/controllers/test",
+            0,
+            "Test Omada connection (pre-registration)",
+        ),
         ep("POST", "/api/omada/test", 0, "Legacy Omada connection test"),
-        ep("POST", "/api/openwrt/routers/test", 0, "Test OpenWrt SSH connection"),
-        ep("POST", "/api/external/devices/test", 0, "Test external device connection"),
+        ep(
+            "POST",
+            "/api/openwrt/routers/test",
+            0,
+            "Test OpenWrt SSH connection",
+        ),
+        ep(
+            "POST",
+            "/api/external/devices/test",
+            0,
+            "Test external device connection",
+        ),
         // Pure computation (no side effect)
         ep("POST", "/api/lacis-id/compute", 0, "Compute LacisID"),
-        ep("POST", "/api/wireguard/keypair", 0, "Generate WireGuard key pair"),
-        ep("POST", "/api/wireguard/config", 0, "Generate WireGuard client config"),
-
+        ep(
+            "POST",
+            "/api/wireguard/keypair",
+            0,
+            "Generate WireGuard key pair",
+        ),
+        ep(
+            "POST",
+            "/api/wireguard/config",
+            0,
+            "Generate WireGuard client config",
+        ),
         // ======== Admin (>= 80) — CRUD create/update, config changes ========
         ep("POST", "/api/routes", 80, "Create proxy route"),
         ep("PUT", "/api/routes/:id", 80, "Update proxy route"),
         ep("POST", "/api/ddns", 80, "Create DDNS configuration"),
         ep("PUT", "/api/ddns/:id", 80, "Update DDNS configuration"),
-        ep("PUT", "/api/ddns/:id/link-omada", 80, "Link DDNS to Omada controller"),
-        ep("POST", "/api/security/blocked-ips", 80, "Block an IP address"),
+        ep(
+            "PUT",
+            "/api/ddns/:id/link-omada",
+            80,
+            "Link DDNS to Omada controller",
+        ),
+        ep(
+            "POST",
+            "/api/security/blocked-ips",
+            80,
+            "Block an IP address",
+        ),
         ep("PUT", "/api/settings/:key", 80, "Update setting"),
-        ep("PUT", "/api/settings/restart", 80, "Update restart settings"),
-        ep("POST", "/api/settings/test-discord", 80, "Test Discord notification"),
-        ep("POST", "/api/omada/controllers", 80, "Register Omada controller"),
-        ep("POST", "/api/openwrt/routers", 80, "Register OpenWrt router"),
-        ep("POST", "/api/external/devices", 80, "Register external device"),
+        ep(
+            "PUT",
+            "/api/settings/restart",
+            80,
+            "Update restart settings",
+        ),
+        ep(
+            "POST",
+            "/api/settings/test-discord",
+            80,
+            "Test Discord notification",
+        ),
+        ep(
+            "POST",
+            "/api/omada/controllers",
+            80,
+            "Register Omada controller",
+        ),
+        ep(
+            "POST",
+            "/api/openwrt/routers",
+            80,
+            "Register OpenWrt router",
+        ),
+        ep(
+            "POST",
+            "/api/external/devices",
+            80,
+            "Register external device",
+        ),
         ep("POST", "/api/aranea/register", 80, "Register aranea device"),
-        ep("POST", "/api/lacis-id/assign/:device_id", 80, "Assign LacisID to device"),
+        ep(
+            "POST",
+            "/api/lacis-id/assign/:device_id",
+            80,
+            "Assign LacisID to device",
+        ),
         ep("POST", "/api/wireguard/peers", 80, "Create WireGuard peer"),
-        ep("PUT", "/api/wireguard/peers/:id", 80, "Update WireGuard peer"),
-        ep("POST", "/api/nginx/enable-full-proxy", 80, "Enable full proxy mode"),
+        ep(
+            "PUT",
+            "/api/wireguard/peers/:id",
+            80,
+            "Update WireGuard peer",
+        ),
+        ep(
+            "POST",
+            "/api/nginx/enable-full-proxy",
+            80,
+            "Enable full proxy mode",
+        ),
         ep("POST", "/api/nginx/reload", 80, "Reload nginx"),
         ep("POST", "/api/nginx/test", 80, "Test nginx config"),
         ep("PUT", "/api/nginx/body-size", 80, "Update nginx body size"),
-        ep("PUT", "/api/nginx/template-settings", 80, "Update nginx template settings"),
-        ep("POST", "/api/nginx/regenerate", 80, "Regenerate nginx config"),
-
+        ep(
+            "PUT",
+            "/api/nginx/template-settings",
+            80,
+            "Update nginx template settings",
+        ),
+        ep(
+            "POST",
+            "/api/nginx/regenerate",
+            80,
+            "Regenerate nginx config",
+        ),
         // ======== Dangerous (== 100) — DELETE operations, confirm required ========
-        ep("DELETE", "/api/routes/:id", 100, "Delete proxy route (confirm required)"),
-        ep("DELETE", "/api/ddns/:id", 100, "Delete DDNS config (confirm required)"),
-        ep("DELETE", "/api/security/blocked-ips/:id", 100, "Unblock IP (confirm required)"),
-        ep("DELETE", "/api/omada/controllers/:id", 100, "Delete Omada controller (confirm required)"),
-        ep("DELETE", "/api/openwrt/routers/:id", 100, "Delete OpenWrt router (confirm required)"),
-        ep("DELETE", "/api/external/devices/:id", 100, "Delete external device (confirm required)"),
-        ep("DELETE", "/api/wireguard/peers/:id", 100, "Delete WireGuard peer (confirm required)"),
+        ep(
+            "DELETE",
+            "/api/routes/:id",
+            100,
+            "Delete proxy route (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/ddns/:id",
+            100,
+            "Delete DDNS config (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/security/blocked-ips/:id",
+            100,
+            "Unblock IP (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/omada/controllers/:id",
+            100,
+            "Delete Omada controller (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/openwrt/routers/:id",
+            100,
+            "Delete OpenWrt router (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/external/devices/:id",
+            100,
+            "Delete external device (confirm required)",
+        ),
+        ep(
+            "DELETE",
+            "/api/wireguard/peers/:id",
+            100,
+            "Delete WireGuard peer (confirm required)",
+        ),
         ep("POST", "/api/auth/api-key", 100, "Issue API key"),
-        ep("POST", "/api/settings/restart/trigger", 100, "Trigger service restart"),
+        ep(
+            "POST",
+            "/api/settings/restart/trigger",
+            100,
+            "Trigger service restart",
+        ),
     ];
 
     all_endpoints

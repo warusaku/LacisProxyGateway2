@@ -124,7 +124,7 @@ mod tests {
         assert!(!is_private_network("203.0.113.1"));
         assert!(!is_private_network("1.1.1.1"));
         assert!(!is_private_network("172.32.0.1")); // outside 172.16-31 range
-        assert!(!is_private_network("11.0.0.1"));   // not 10.x
+        assert!(!is_private_network("11.0.0.1")); // not 10.x
     }
 
     #[test]

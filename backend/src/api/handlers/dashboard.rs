@@ -142,7 +142,12 @@ pub async fn get_access_log(
     let logs = state
         .app_state
         .mongo
-        .get_access_logs(pagination.limit, pagination.offset, &pagination.exclude_ips, &pagination.exclude_lan)
+        .get_access_logs(
+            pagination.limit,
+            pagination.offset,
+            &pagination.exclude_ips,
+            &pagination.exclude_lan,
+        )
         .await?;
 
     Ok(Json(logs))
@@ -415,7 +420,9 @@ pub async fn get_ssl_status() -> impl IntoResponse {
 
     // Parse certificate using openssl command
     let cert_info = std::process::Command::new("openssl")
-        .args(["x509", "-in", cert_path, "-noout", "-dates", "-issuer", "-subject"])
+        .args([
+            "x509", "-in", cert_path, "-noout", "-dates", "-issuer", "-subject",
+        ])
         .output();
 
     let mut domain = Some("akbdevs.dnsalias.com".to_string());
@@ -682,7 +689,10 @@ async fn get_cpu_usage() -> f64 {
 }
 
 fn get_disk_info() -> Vec<DiskInfo> {
-    let output = run_command("df", &["-BG", "--output=target,fstype,size,used,avail,pcent"]);
+    let output = run_command(
+        "df",
+        &["-BG", "--output=target,fstype,size,used,avail,pcent"],
+    );
     let mut disks = Vec::new();
 
     for line in output.lines().skip(1) {
@@ -690,13 +700,14 @@ fn get_disk_info() -> Vec<DiskInfo> {
         if parts.len() >= 6 {
             let mount = parts[0];
             // Skip virtual filesystems
-            if mount.starts_with("/dev") || mount == "/" || mount.starts_with("/home") || mount.starts_with("/var") {
-                let parse_gb = |s: &str| -> f64 {
-                    s.trim_end_matches('G').parse().unwrap_or(0.0)
-                };
-                let parse_percent = |s: &str| -> f64 {
-                    s.trim_end_matches('%').parse().unwrap_or(0.0)
-                };
+            if mount.starts_with("/dev")
+                || mount == "/"
+                || mount.starts_with("/home")
+                || mount.starts_with("/var")
+            {
+                let parse_gb = |s: &str| -> f64 { s.trim_end_matches('G').parse().unwrap_or(0.0) };
+                let parse_percent =
+                    |s: &str| -> f64 { s.trim_end_matches('%').parse().unwrap_or(0.0) };
 
                 disks.push(DiskInfo {
                     mount_point: mount.to_string(),
@@ -829,7 +840,10 @@ pub async fn get_server_health() -> impl IntoResponse {
         .find(|l| l.starts_with("model name"))
         .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
         .unwrap_or_else(|| "Unknown".to_string());
-    let cpu_cores = cpuinfo.lines().filter(|l| l.starts_with("processor")).count() as u32;
+    let cpu_cores = cpuinfo
+        .lines()
+        .filter(|l| l.starts_with("processor"))
+        .count() as u32;
     let cpu_usage = get_cpu_usage().await;
 
     let cpu = CpuInfo {
@@ -904,11 +918,7 @@ pub async fn search_access_log(
     State(state): State<ProxyState>,
     Query(query): Query<AccessLogSearchQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let result = state
-        .app_state
-        .mongo
-        .search_access_logs(&query)
-        .await?;
+    let result = state.app_state.mongo.search_access_logs(&query).await?;
 
     Ok(Json(result))
 }
@@ -1045,7 +1055,8 @@ pub async fn export_access_log(
         .await?;
 
     // Build CSV
-    let mut csv = String::from("timestamp,ip,method,path,status,response_time_ms,user_agent,referer\n");
+    let mut csv =
+        String::from("timestamp,ip,method,path,status,response_time_ms,user_agent,referer\n");
     for log in &result.logs {
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{}\n",

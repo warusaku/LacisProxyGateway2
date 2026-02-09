@@ -2,8 +2,8 @@
 
 use axum::{
     body::Body,
-    extract::{ConnectInfo, FromRequest, Request, State},
     extract::ws::WebSocketUpgrade,
+    extract::{ConnectInfo, FromRequest, Request, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -36,9 +36,7 @@ pub async fn proxy_handler(
     }
 
     // Get host header for DDNS-based routing
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok());
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
 
     // Find matching route (considering host for DDNS routing)
     let router = state.router.read().await;
@@ -114,7 +112,11 @@ pub async fn proxy_handler(
     }
 
     if is_websocket && !matched_route.websocket_support {
-        return (StatusCode::BAD_REQUEST, "WebSocket not supported on this route").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "WebSocket not supported on this route",
+        )
+            .into_response();
     }
 
     // Build upstream request
@@ -343,7 +345,7 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 }
 
 /// Rewrite Location header for redirect responses
-/// 
+///
 /// When a backend returns a redirect to an absolute path (e.g., `/login`),
 /// we need to prepend the original route prefix (e.g., `/paraclate/login`)
 /// so the client is redirected to the correct proxied path.
@@ -365,8 +367,11 @@ fn rewrite_location_header(
                 if loc_url.host_str() == target_url.host_str() {
                     // Rewrite to point to our proxy
                     let path = loc_url.path();
-                    let query = loc_url.query().map(|q| format!("?{}", q)).unwrap_or_default();
-                    
+                    let query = loc_url
+                        .query()
+                        .map(|q| format!("?{}", q))
+                        .unwrap_or_default();
+
                     let new_path = if let Some(prefix) = original_prefix {
                         format!("{}{}{}", prefix, path, query)
                     } else {

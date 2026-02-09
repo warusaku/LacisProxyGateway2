@@ -195,10 +195,7 @@ pub async fn delete_peer(
         }
     };
 
-    match client
-        .delete_wireguard_peer(&q.site_id, &peer_id)
-        .await
-    {
+    match client.delete_wireguard_peer(&q.site_id, &peer_id).await {
         Ok(()) => {
             let syncer = crate::omada::OmadaSyncer::new(
                 state.omada_manager.clone(),

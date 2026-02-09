@@ -59,7 +59,11 @@ impl OmadaManager {
                 client_secret: ctrl.client_secret.clone(),
                 omadac_id: ctrl.omadac_id.clone(),
                 // Use first site_id if available
-                site_id: ctrl.sites.first().map(|s| s.site_id.clone()).unwrap_or_default(),
+                site_id: ctrl
+                    .sites
+                    .first()
+                    .map(|s| s.site_id.clone())
+                    .unwrap_or_default(),
                 base_url: ctrl.base_url.clone(),
             };
 
@@ -92,8 +96,7 @@ impl OmadaManager {
             .build()
             .map_err(|e| format!("HTTP client: {}", e))?;
 
-        let info =
-            OmadaClient::get_controller_info_from_url(&http_client, base_url).await?;
+        let info = OmadaClient::get_controller_info_from_url(&http_client, base_url).await?;
 
         // 2. Create test client and verify token
         let test_client = OmadaClient::create_test_client(base_url, client_id, client_secret);
@@ -133,9 +136,7 @@ impl OmadaManager {
             updated_at: now,
         };
 
-        self.mongo
-            .upsert_omada_controller(&controller_doc)
-            .await?;
+        self.mongo.upsert_omada_controller(&controller_doc).await?;
 
         // 5. Add client to active map
         let config = OmadaConfig {
@@ -267,9 +268,7 @@ impl OmadaManager {
             map.remove(controller_id);
         }
 
-        self.mongo
-            .delete_omada_controller(controller_id)
-            .await?;
+        self.mongo.delete_omada_controller(controller_id).await?;
 
         tracing::info!("[OmadaManager] Removed controller: {}", controller_id);
         Ok(())
@@ -297,7 +296,10 @@ impl OmadaManager {
         // Check if MongoDB already has controllers
         let existing = self.mongo.list_omada_controllers().await?;
         if !existing.is_empty() {
-            tracing::info!("[OmadaManager] MongoDB already has {} controllers, skipping MySQL migration", existing.len());
+            tracing::info!(
+                "[OmadaManager] MongoDB already has {} controllers, skipping MySQL migration",
+                existing.len()
+            );
             return Ok(false);
         }
 
@@ -355,7 +357,11 @@ impl OmadaManager {
             match OmadaClient::get_controller_info_from_url(&http_client, &base_url).await {
                 Ok(info) => omadac_id = info.omadac_id,
                 Err(e) => {
-                    tracing::warn!("[OmadaManager] Migration: cannot reach controller at {}: {}", base_url, e);
+                    tracing::warn!(
+                        "[OmadaManager] Migration: cannot reach controller at {}: {}",
+                        base_url,
+                        e
+                    );
                     return Ok(false);
                 }
             }
@@ -390,9 +396,7 @@ impl OmadaManager {
             updated_at: now,
         };
 
-        self.mongo
-            .upsert_omada_controller(&controller_doc)
-            .await?;
+        self.mongo.upsert_omada_controller(&controller_doc).await?;
 
         // Add to active clients
         let config = OmadaConfig {
@@ -408,7 +412,10 @@ impl OmadaManager {
             map.insert(omadac_id.clone(), client);
         }
 
-        tracing::info!("[OmadaManager] Migrated MySQL omada_config to MongoDB (controller_id: {})", omadac_id);
+        tracing::info!(
+            "[OmadaManager] Migrated MySQL omada_config to MongoDB (controller_id: {})",
+            omadac_id
+        );
         Ok(true)
     }
 }

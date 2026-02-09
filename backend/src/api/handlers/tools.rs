@@ -38,10 +38,8 @@ pub async fn tool_sync_omada(
 
     let start = std::time::Instant::now();
 
-    let syncer = crate::omada::OmadaSyncer::new(
-        state.omada_manager.clone(),
-        state.app_state.mongo.clone(),
-    );
+    let syncer =
+        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone());
 
     let controller_ids = state.omada_manager.list_controller_ids().await;
     let mut results = Vec::new();
@@ -49,7 +47,9 @@ pub async fn tool_sync_omada(
     for ctrl_id in &controller_ids {
         match syncer.sync_one(ctrl_id).await {
             Ok(()) => results.push(serde_json::json!({ "controller_id": ctrl_id, "status": "ok" })),
-            Err(e) => results.push(serde_json::json!({ "controller_id": ctrl_id, "status": "error", "error": e })),
+            Err(e) => results.push(
+                serde_json::json!({ "controller_id": ctrl_id, "status": "error", "error": e }),
+            ),
         }
     }
 
@@ -59,7 +59,11 @@ pub async fn tool_sync_omada(
         let _ = state
             .app_state
             .mongo
-            .complete_operation_log(&op_id, Some(&serde_json::json!({ "results": results })), duration)
+            .complete_operation_log(
+                &op_id,
+                Some(&serde_json::json!({ "results": results })),
+                duration,
+            )
             .await;
     }
 
@@ -105,11 +109,15 @@ pub async fn tool_sync_openwrt(
 
     let duration = start.elapsed().as_millis() as u64;
     if !op_id.is_empty() {
-        let _ = state.app_state.mongo.complete_operation_log(
-            &op_id,
-            Some(&serde_json::json!({ "ok": ok_count, "errors": err_count })),
-            duration,
-        ).await;
+        let _ = state
+            .app_state
+            .mongo
+            .complete_operation_log(
+                &op_id,
+                Some(&serde_json::json!({ "ok": ok_count, "errors": err_count })),
+                duration,
+            )
+            .await;
     }
 
     Ok(Json(serde_json::json!({
@@ -154,11 +162,15 @@ pub async fn tool_sync_external(
 
     let duration = start.elapsed().as_millis() as u64;
     if !op_id.is_empty() {
-        let _ = state.app_state.mongo.complete_operation_log(
-            &op_id,
-            Some(&serde_json::json!({ "ok": ok_count, "errors": err_count })),
-            duration,
-        ).await;
+        let _ = state
+            .app_state
+            .mongo
+            .complete_operation_log(
+                &op_id,
+                Some(&serde_json::json!({ "ok": ok_count, "errors": err_count })),
+                duration,
+            )
+            .await;
     }
 
     Ok(Json(serde_json::json!({
@@ -179,13 +191,22 @@ pub async fn tool_ddns_update_all(
     let op_id = state
         .app_state
         .mongo
-        .start_operation_log_with_operator("ddns_update_all", "api", None, Some(operator_from(&user)))
+        .start_operation_log_with_operator(
+            "ddns_update_all",
+            "api",
+            None,
+            Some(operator_from(&user)),
+        )
         .await
         .unwrap_or_default();
 
     let start = std::time::Instant::now();
 
-    let configs = state.app_state.mysql.list_active_ddns().await
+    let configs = state
+        .app_state
+        .mysql
+        .list_active_ddns()
+        .await
         .map_err(|e| AppError::InternalError(format!("Failed to list DDNS configs: {}", e)))?;
 
     let mut ok_count = 0u32;
@@ -229,8 +250,12 @@ pub async fn tool_network_ping(
     require_permission(&user, 50)?;
 
     // Validate hostname (prevent command injection)
-    if payload.host.contains(';') || payload.host.contains('|') || payload.host.contains('&')
-        || payload.host.contains('$') || payload.host.contains('`') || payload.host.contains('\n')
+    if payload.host.contains(';')
+        || payload.host.contains('|')
+        || payload.host.contains('&')
+        || payload.host.contains('$')
+        || payload.host.contains('`')
+        || payload.host.contains('\n')
     {
         return Err(AppError::BadRequest("Invalid hostname".to_string()));
     }

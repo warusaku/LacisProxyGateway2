@@ -67,8 +67,8 @@ impl MongoDb {
     /// Insert a new operation log
     pub async fn insert_operation_log(&self, log: &OperationLogDoc) -> Result<(), String> {
         let collection = self.db.collection::<bson::Document>("operation_logs");
-        let bson_doc = bson::to_document(log)
-            .map_err(|e| format!("Serialize operation_log: {}", e))?;
+        let bson_doc =
+            bson::to_document(log).map_err(|e| format!("Serialize operation_log: {}", e))?;
 
         collection
             .insert_one(bson_doc, None)
@@ -92,8 +92,7 @@ impl MongoDb {
 
         let mut set_doc = doc! { "status": status };
         if let Some(r) = result {
-            let bson_val = bson::to_bson(r)
-                .map_err(|e| format!("Serialize result: {}", e))?;
+            let bson_val = bson::to_bson(r).map_err(|e| format!("Serialize result: {}", e))?;
             set_doc.insert("result", bson_val);
         }
         if let Some(e) = error {
@@ -198,10 +197,7 @@ impl MongoDb {
         let now = Utc::now().to_rfc3339();
         let yesterday = (Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
 
-        let total = collection
-            .count_documents(doc! {}, None)
-            .await
-            .unwrap_or(0);
+        let total = collection.count_documents(doc! {}, None).await.unwrap_or(0);
 
         let recent = collection
             .count_documents(doc! { "created_at": { "$gte": &yesterday } }, None)

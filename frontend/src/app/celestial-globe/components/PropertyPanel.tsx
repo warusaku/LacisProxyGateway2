@@ -39,9 +39,11 @@ export function PropertyPanel() {
   }, [fetchTopology]);
 
   const handleDelete = useCallback(async () => {
-    if (!node || node.source !== 'logic') return;
+    if (!node || (node.source !== 'logic' && node.source !== 'manual')) return;
     if (!confirm(`Delete logic device "${node.label}"?`)) return;
-    await deleteLogicDevice(node.id);
+    // Logic device ID is in metadata (nodeOrder uses pseudo-MAC as node ID)
+    const logicDeviceId = (node.metadata?.logic_device_id as string) || node.id;
+    await deleteLogicDevice(logicDeviceId);
     setSelectedNodeId(null);
   }, [node, deleteLogicDevice, setSelectedNodeId]);
 
@@ -201,7 +203,7 @@ export function PropertyPanel() {
         <div className="cg-section-title">Topology</div>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <PropRow label="Parent" value={parentLabel} />
-          {node.source === 'logic' && (
+          {node.node_type !== 'internet' && (
             <button
               onClick={() => setShowReparent(!showReparent)}
               style={{
@@ -218,7 +220,7 @@ export function PropertyPanel() {
             </button>
           )}
         </div>
-        {showReparent && node.source === 'logic' && (
+        {showReparent && node.node_type !== 'internet' && (
           <div style={{ marginTop: 4, marginBottom: 4 }}>
             <select
               onChange={e => {
@@ -255,7 +257,7 @@ export function PropertyPanel() {
       </div>
 
       {/* LogicDevice actions */}
-      {node.source === 'logic' && (
+      {(node.source === 'logic' || node.source === 'manual') && (
         <div className="cg-section" style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={handleDelete}

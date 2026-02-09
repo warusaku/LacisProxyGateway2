@@ -42,8 +42,8 @@ impl DeviceProtocol {
     pub fn product_type(&self) -> &'static str {
         match self {
             DeviceProtocol::MercuryAC => "103", // AccessPoint
-            DeviceProtocol::Deco => "103",       // AccessPoint
-            DeviceProtocol::Generic => "191",    // Unknown
+            DeviceProtocol::Deco => "103",      // AccessPoint
+            DeviceProtocol::Generic => "191",   // Unknown
         }
     }
 

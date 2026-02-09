@@ -1,11 +1,6 @@
 //! Nginx configuration management handlers
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tokio::fs;
@@ -120,14 +115,17 @@ pub async fn enable_full_proxy(
 
     // Save server_name and backend_port to DB for template settings
     let db = &state.app_state.mysql;
-    db.set_setting("nginx_server_name", Some(&server_name)).await?;
-    db.set_setting("nginx_backend_port", Some(&backend_port.to_string())).await?;
+    db.set_setting("nginx_server_name", Some(&server_name))
+        .await?;
+    db.set_setting("nginx_backend_port", Some(&backend_port.to_string()))
+        .await?;
 
     // Load full template settings from DB (now includes updated server_name/port)
     let settings = load_template_settings_from_db(db).await?;
 
     // Find existing config or create new
-    let config_path = find_config_path().await
+    let config_path = find_config_path()
+        .await
         .unwrap_or_else(|| format!("{}/lacis-proxy", NGINX_SITES_AVAILABLE));
 
     // Generate full proxy config from DB settings
@@ -141,7 +139,8 @@ pub async fn enable_full_proxy(
     }
 
     // Write new config
-    fs::write(&config_path, &config).await
+    fs::write(&config_path, &config)
+        .await
         .map_err(|e| AppError::InternalError(format!("Failed to write nginx config: {}", e)))?;
 
     // Ensure symlink in sites-enabled
@@ -163,16 +162,21 @@ pub async fn enable_full_proxy(
     reload_nginx().await?;
 
     // Send notification
-    state.notifier.notify_config_change(
-        "Nginx Configuration Updated",
-        "Full proxy mode enabled. All routes are now managed through the UI.",
-    ).await;
+    state
+        .notifier
+        .notify_config_change(
+            "Nginx Configuration Updated",
+            "Full proxy mode enabled. All routes are now managed through the UI.",
+        )
+        .await;
 
     tracing::info!("Enabled full proxy mode in nginx");
 
     Ok((
         StatusCode::OK,
-        Json(SuccessResponse::new("Full proxy mode enabled. Nginx reloaded.")),
+        Json(SuccessResponse::new(
+            "Full proxy mode enabled. Nginx reloaded.",
+        )),
     ))
 }
 
@@ -194,10 +198,13 @@ pub async fn reload_nginx_handler(
 
     reload_nginx().await?;
 
-    state.notifier.notify_config_change(
-        "Nginx Reloaded",
-        "Nginx configuration reloaded successfully.",
-    ).await;
+    state
+        .notifier
+        .notify_config_change(
+            "Nginx Reloaded",
+            "Nginx configuration reloaded successfully.",
+        )
+        .await;
 
     Ok(Json(SuccessResponse::new("Nginx reloaded successfully")))
 }
@@ -224,10 +231,12 @@ pub async fn test_nginx_config_handler(
 pub async fn get_nginx_config(
     State(_state): State<ProxyState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config_path = find_config_path().await
+    let config_path = find_config_path()
+        .await
         .ok_or_else(|| AppError::NotFound("Nginx config not found".to_string()))?;
 
-    let content = fs::read_to_string(&config_path).await
+    let content = fs::read_to_string(&config_path)
+        .await
         .map_err(|e| AppError::InternalError(format!("Failed to read config: {}", e)))?;
 
     #[derive(Serialize)]
@@ -255,10 +264,7 @@ pub(crate) async fn check_nginx_running() -> bool {
 }
 
 pub(crate) async fn test_nginx_config() -> (bool, Option<String>) {
-    match Command::new("sudo")
-        .args(["nginx", "-t"])
-        .output()
-    {
+    match Command::new("sudo").args(["nginx", "-t"]).output() {
         Ok(output) => {
             if output.status.success() {
                 (true, None)
@@ -279,7 +285,10 @@ async fn reload_nginx() -> Result<(), AppError> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::InternalError(format!("Nginx reload failed: {}", stderr)));
+        return Err(AppError::InternalError(format!(
+            "Nginx reload failed: {}",
+            stderr
+        )));
     }
 
     Ok(())
@@ -351,18 +360,27 @@ pub async fn update_body_size(
 
     // Validate size format (e.g., 50M, 100M, 1G)
     let size = payload.size.trim().to_uppercase();
-    if !size.chars().last().map(|c| c == 'M' || c == 'G' || c == 'K').unwrap_or(false) {
-        return Err(AppError::BadRequest("Size must end with K, M, or G (e.g., 50M, 1G)".to_string()));
+    if !size
+        .chars()
+        .last()
+        .map(|c| c == 'M' || c == 'G' || c == 'K')
+        .unwrap_or(false)
+    {
+        return Err(AppError::BadRequest(
+            "Size must end with K, M, or G (e.g., 50M, 1G)".to_string(),
+        ));
     }
-    let numeric_part = &size[..size.len()-1];
+    let numeric_part = &size[..size.len() - 1];
     if numeric_part.parse::<u32>().is_err() {
         return Err(AppError::BadRequest("Invalid size format".to_string()));
     }
 
-    let config_path = find_config_path().await
+    let config_path = find_config_path()
+        .await
         .ok_or_else(|| AppError::NotFound("Nginx config not found".to_string()))?;
 
-    let content = fs::read_to_string(&config_path).await
+    let content = fs::read_to_string(&config_path)
+        .await
         .map_err(|e| AppError::InternalError(format!("Failed to read config: {}", e)))?;
 
     // Update or add client_max_body_size in each location block
@@ -374,24 +392,24 @@ pub async fn update_body_size(
 
     for line in content.lines() {
         let trimmed = line.trim();
-        
+
         // Track if we're entering a location block
         if trimmed.starts_with("location ") {
             in_location_block = true;
             has_body_size = false;
             pending_body_size_insert = true;
         }
-        
+
         // Track braces
         if in_location_block {
             brace_count += line.matches('{').count() as i32;
             brace_count -= line.matches('}').count() as i32;
-            
+
             if brace_count == 0 {
                 in_location_block = false;
             }
         }
-        
+
         // Replace existing client_max_body_size
         if trimmed.starts_with("client_max_body_size") {
             new_content.push_str(&format!("        client_max_body_size {};\n", size));
@@ -399,7 +417,7 @@ pub async fn update_body_size(
             pending_body_size_insert = false;
             continue;
         }
-        
+
         // Add client_max_body_size after location line with opening brace
         if pending_body_size_insert && trimmed.contains('{') {
             new_content.push_str(line);
@@ -408,7 +426,7 @@ pub async fn update_body_size(
             pending_body_size_insert = false;
             continue;
         }
-        
+
         new_content.push_str(line);
         new_content.push('\n');
     }
@@ -429,7 +447,9 @@ pub async fn update_body_size(
         .map_err(|e| AppError::InternalError(format!("Failed to write config: {}", e)))?;
 
     if !output.status.success() {
-        return Err(AppError::InternalError("Failed to write nginx config".to_string()));
+        return Err(AppError::InternalError(
+            "Failed to write nginx config".to_string(),
+        ));
     }
 
     // Test and reload nginx
@@ -443,14 +463,20 @@ pub async fn update_body_size(
 
     reload_nginx().await?;
 
-    state.notifier.notify_config_change(
-        "Nginx Body Size Updated",
-        &format!("client_max_body_size changed to {}", size),
-    ).await;
+    state
+        .notifier
+        .notify_config_change(
+            "Nginx Body Size Updated",
+            &format!("client_max_body_size changed to {}", size),
+        )
+        .await;
 
     tracing::info!("Updated client_max_body_size to {}", size);
 
-    Ok(Json(SuccessResponse::new(&format!("Body size limit updated to {}", size))))
+    Ok(Json(SuccessResponse::new(&format!(
+        "Body size limit updated to {}",
+        size
+    ))))
 }
 
 // ============================================================================
@@ -477,27 +503,37 @@ pub async fn update_nginx_template_settings(
     // Validation
     if let Some(port) = payload.backend_port {
         if port == 0 {
-            return Err(AppError::BadRequest("backend_port must be 1-65535".to_string()));
+            return Err(AppError::BadRequest(
+                "backend_port must be 1-65535".to_string(),
+            ));
         }
     }
     if let Some(level) = payload.gzip_comp_level {
         if !(1..=9).contains(&level) {
-            return Err(AppError::BadRequest("gzip_comp_level must be 1-9".to_string()));
+            return Err(AppError::BadRequest(
+                "gzip_comp_level must be 1-9".to_string(),
+            ));
         }
     }
     if let Some(t) = payload.proxy_connect_timeout {
         if t == 0 || t > 3600 {
-            return Err(AppError::BadRequest("proxy_connect_timeout must be 1-3600".to_string()));
+            return Err(AppError::BadRequest(
+                "proxy_connect_timeout must be 1-3600".to_string(),
+            ));
         }
     }
     if let Some(t) = payload.proxy_send_timeout {
         if t == 0 || t > 3600 {
-            return Err(AppError::BadRequest("proxy_send_timeout must be 1-3600".to_string()));
+            return Err(AppError::BadRequest(
+                "proxy_send_timeout must be 1-3600".to_string(),
+            ));
         }
     }
     if let Some(t) = payload.proxy_read_timeout {
         if t == 0 || t > 3600 {
-            return Err(AppError::BadRequest("proxy_read_timeout must be 1-3600".to_string()));
+            return Err(AppError::BadRequest(
+                "proxy_read_timeout must be 1-3600".to_string(),
+            ));
         }
     }
 
@@ -508,43 +544,55 @@ pub async fn update_nginx_template_settings(
         db.set_setting("nginx_server_name", Some(v)).await?;
     }
     if let Some(v) = payload.backend_port {
-        db.set_setting("nginx_backend_port", Some(&v.to_string())).await?;
+        db.set_setting("nginx_backend_port", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = payload.gzip_enabled {
-        db.set_setting("nginx_gzip_enabled", Some(if v { "true" } else { "false" })).await?;
+        db.set_setting("nginx_gzip_enabled", Some(if v { "true" } else { "false" }))
+            .await?;
     }
     if let Some(v) = payload.gzip_comp_level {
-        db.set_setting("nginx_gzip_comp_level", Some(&v.to_string())).await?;
+        db.set_setting("nginx_gzip_comp_level", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = payload.gzip_min_length {
-        db.set_setting("nginx_gzip_min_length", Some(&v.to_string())).await?;
+        db.set_setting("nginx_gzip_min_length", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = payload.proxy_connect_timeout {
-        db.set_setting("nginx_proxy_connect_timeout", Some(&v.to_string())).await?;
+        db.set_setting("nginx_proxy_connect_timeout", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = payload.proxy_send_timeout {
-        db.set_setting("nginx_proxy_send_timeout", Some(&v.to_string())).await?;
+        db.set_setting("nginx_proxy_send_timeout", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = payload.proxy_read_timeout {
-        db.set_setting("nginx_proxy_read_timeout", Some(&v.to_string())).await?;
+        db.set_setting("nginx_proxy_read_timeout", Some(&v.to_string()))
+            .await?;
     }
     if let Some(v) = &payload.header_x_frame_options {
-        db.set_setting("nginx_header_x_frame_options", Some(v)).await?;
+        db.set_setting("nginx_header_x_frame_options", Some(v))
+            .await?;
     }
     if let Some(v) = &payload.header_x_content_type {
-        db.set_setting("nginx_header_x_content_type", Some(v)).await?;
+        db.set_setting("nginx_header_x_content_type", Some(v))
+            .await?;
     }
     if let Some(v) = &payload.header_xss_protection {
-        db.set_setting("nginx_header_xss_protection", Some(v)).await?;
+        db.set_setting("nginx_header_xss_protection", Some(v))
+            .await?;
     }
     if let Some(v) = &payload.header_hsts {
         db.set_setting("nginx_header_hsts", Some(v)).await?;
     }
     if let Some(v) = &payload.header_referrer_policy {
-        db.set_setting("nginx_header_referrer_policy", Some(v)).await?;
+        db.set_setting("nginx_header_referrer_policy", Some(v))
+            .await?;
     }
     if let Some(v) = &payload.header_permissions_policy {
-        db.set_setting("nginx_header_permissions_policy", Some(v)).await?;
+        db.set_setting("nginx_header_permissions_policy", Some(v))
+            .await?;
     }
     if let Some(v) = &payload.header_csp {
         db.set_setting("nginx_header_csp", Some(v)).await?;
@@ -566,7 +614,8 @@ pub async fn regenerate_nginx_config(
     let settings = load_template_settings_from_db(db).await?;
 
     // Find existing config or create new
-    let config_path = find_config_path().await
+    let config_path = find_config_path()
+        .await
         .unwrap_or_else(|| format!("{}/lacis-proxy", NGINX_SITES_AVAILABLE));
 
     // Generate config from DB settings
@@ -580,7 +629,8 @@ pub async fn regenerate_nginx_config(
     }
 
     // Write new config
-    fs::write(&config_path, &config).await
+    fs::write(&config_path, &config)
+        .await
         .map_err(|e| AppError::InternalError(format!("Failed to write nginx config: {}", e)))?;
 
     // Ensure symlink in sites-enabled
@@ -601,14 +651,19 @@ pub async fn regenerate_nginx_config(
     // Reload nginx
     reload_nginx().await?;
 
-    state.notifier.notify_config_change(
-        "Nginx Config Regenerated",
-        "Nginx configuration regenerated from template settings and reloaded.",
-    ).await;
+    state
+        .notifier
+        .notify_config_change(
+            "Nginx Config Regenerated",
+            "Nginx configuration regenerated from template settings and reloaded.",
+        )
+        .await;
 
     tracing::info!("Regenerated nginx config from DB template settings");
 
-    Ok(Json(SuccessResponse::new("Nginx config regenerated and reloaded successfully")))
+    Ok(Json(SuccessResponse::new(
+        "Nginx config regenerated and reloaded successfully",
+    )))
 }
 
 // ============================================================================
@@ -617,35 +672,63 @@ pub async fn regenerate_nginx_config(
 
 /// Load NginxTemplateSettings from DB with sensible defaults
 async fn load_template_settings_from_db(db: &MySqlDb) -> Result<NginxTemplateSettings, AppError> {
-    let server_name = db.get_setting("nginx_server_name").await?
+    let server_name = db
+        .get_setting("nginx_server_name")
+        .await?
         .unwrap_or_else(|| "_".to_string());
-    let backend_port = db.get_setting("nginx_backend_port").await?
+    let backend_port = db
+        .get_setting("nginx_backend_port")
+        .await?
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(8081);
-    let gzip_enabled = db.get_setting_bool("nginx_gzip_enabled").await
+    let gzip_enabled = db
+        .get_setting_bool("nginx_gzip_enabled")
+        .await
         .unwrap_or(true);
-    let gzip_comp_level = db.get_setting_i32("nginx_gzip_comp_level", 6).await
+    let gzip_comp_level = db
+        .get_setting_i32("nginx_gzip_comp_level", 6)
+        .await
         .unwrap_or(6) as u32;
-    let gzip_min_length = db.get_setting_i32("nginx_gzip_min_length", 1024).await
+    let gzip_min_length = db
+        .get_setting_i32("nginx_gzip_min_length", 1024)
+        .await
         .unwrap_or(1024) as u32;
-    let proxy_connect_timeout = db.get_setting_i32("nginx_proxy_connect_timeout", 60).await
+    let proxy_connect_timeout = db
+        .get_setting_i32("nginx_proxy_connect_timeout", 60)
+        .await
         .unwrap_or(60) as u32;
-    let proxy_send_timeout = db.get_setting_i32("nginx_proxy_send_timeout", 60).await
+    let proxy_send_timeout = db
+        .get_setting_i32("nginx_proxy_send_timeout", 60)
+        .await
         .unwrap_or(60) as u32;
-    let proxy_read_timeout = db.get_setting_i32("nginx_proxy_read_timeout", 60).await
+    let proxy_read_timeout = db
+        .get_setting_i32("nginx_proxy_read_timeout", 60)
+        .await
         .unwrap_or(60) as u32;
 
-    let header_x_frame_options = db.get_setting("nginx_header_x_frame_options").await?
+    let header_x_frame_options = db
+        .get_setting("nginx_header_x_frame_options")
+        .await?
         .unwrap_or_else(|| "SAMEORIGIN".to_string());
-    let header_x_content_type = db.get_setting("nginx_header_x_content_type").await?
+    let header_x_content_type = db
+        .get_setting("nginx_header_x_content_type")
+        .await?
         .unwrap_or_else(|| "nosniff".to_string());
-    let header_xss_protection = db.get_setting("nginx_header_xss_protection").await?
+    let header_xss_protection = db
+        .get_setting("nginx_header_xss_protection")
+        .await?
         .unwrap_or_else(|| "1; mode=block".to_string());
-    let header_hsts = db.get_setting("nginx_header_hsts").await?
+    let header_hsts = db
+        .get_setting("nginx_header_hsts")
+        .await?
         .unwrap_or_else(|| "max-age=31536000; includeSubDomains".to_string());
-    let header_referrer_policy = db.get_setting("nginx_header_referrer_policy").await?
+    let header_referrer_policy = db
+        .get_setting("nginx_header_referrer_policy")
+        .await?
         .unwrap_or_else(|| "strict-origin-when-cross-origin".to_string());
-    let header_permissions_policy = db.get_setting("nginx_header_permissions_policy").await?
+    let header_permissions_policy = db
+        .get_setting("nginx_header_permissions_policy")
+        .await?
         .unwrap_or_else(|| "camera=(), microphone=(), geolocation=()".to_string());
     let header_csp = db.get_setting("nginx_header_csp").await?
         .unwrap_or_else(|| "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-src 'self' https://maps.google.com https://www.google.com;".to_string());
@@ -692,25 +775,46 @@ fn generate_full_proxy_config_from_settings(s: &NginxTemplateSettings) -> String
     // Build security headers section - only emit non-empty values
     let mut headers = Vec::new();
     if !s.header_x_frame_options.is_empty() {
-        headers.push(format!(r#"    add_header X-Frame-Options "{}" always;"#, s.header_x_frame_options));
+        headers.push(format!(
+            r#"    add_header X-Frame-Options "{}" always;"#,
+            s.header_x_frame_options
+        ));
     }
     if !s.header_x_content_type.is_empty() {
-        headers.push(format!(r#"    add_header X-Content-Type-Options "{}" always;"#, s.header_x_content_type));
+        headers.push(format!(
+            r#"    add_header X-Content-Type-Options "{}" always;"#,
+            s.header_x_content_type
+        ));
     }
     if !s.header_xss_protection.is_empty() {
-        headers.push(format!(r#"    add_header X-XSS-Protection "{}" always;"#, s.header_xss_protection));
+        headers.push(format!(
+            r#"    add_header X-XSS-Protection "{}" always;"#,
+            s.header_xss_protection
+        ));
     }
     if !s.header_hsts.is_empty() {
-        headers.push(format!(r#"    add_header Strict-Transport-Security "{}" always;"#, s.header_hsts));
+        headers.push(format!(
+            r#"    add_header Strict-Transport-Security "{}" always;"#,
+            s.header_hsts
+        ));
     }
     if !s.header_referrer_policy.is_empty() {
-        headers.push(format!(r#"    add_header Referrer-Policy "{}" always;"#, s.header_referrer_policy));
+        headers.push(format!(
+            r#"    add_header Referrer-Policy "{}" always;"#,
+            s.header_referrer_policy
+        ));
     }
     if !s.header_permissions_policy.is_empty() {
-        headers.push(format!(r#"    add_header Permissions-Policy "{}" always;"#, s.header_permissions_policy));
+        headers.push(format!(
+            r#"    add_header Permissions-Policy "{}" always;"#,
+            s.header_permissions_policy
+        ));
     }
     if !s.header_csp.is_empty() {
-        headers.push(format!(r#"    add_header Content-Security-Policy "{}" always;"#, s.header_csp));
+        headers.push(format!(
+            r#"    add_header Content-Security-Policy "{}" always;"#,
+            s.header_csp
+        ));
     }
 
     let security_headers_section = if headers.is_empty() {

@@ -201,7 +201,9 @@ pub async fn update_restart_settings(
             || time.len() != 5
             || time.chars().nth(2) != Some(':')
         {
-            return Err(AppError::BadRequest("Invalid time format. Use HH:MM".to_string()));
+            return Err(AppError::BadRequest(
+                "Invalid time format. Use HH:MM".to_string(),
+            ));
         }
         state
             .app_state
@@ -220,7 +222,9 @@ pub async fn update_restart_settings(
 
     if let Some(threshold) = payload.cpu_threshold {
         if threshold > 100 {
-            return Err(AppError::BadRequest("CPU threshold must be 0-100".to_string()));
+            return Err(AppError::BadRequest(
+                "CPU threshold must be 0-100".to_string(),
+            ));
         }
         state
             .app_state
@@ -231,7 +235,9 @@ pub async fn update_restart_settings(
 
     if let Some(threshold) = payload.ram_threshold {
         if threshold > 100 {
-            return Err(AppError::BadRequest("RAM threshold must be 0-100".to_string()));
+            return Err(AppError::BadRequest(
+                "RAM threshold must be 0-100".to_string(),
+            ));
         }
         state
             .app_state
@@ -284,7 +290,7 @@ pub async fn trigger_manual_restart(
     let service_name = service.to_string();
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        
+
         match service_name.as_str() {
             "backend" => {
                 let _ = std::process::Command::new("systemctl")
@@ -303,7 +309,12 @@ pub async fn trigger_manual_restart(
             }
             "all" => {
                 let _ = std::process::Command::new("sudo")
-                    .args(["systemctl", "restart", "lacis-proxy-gateway", "lacis-proxy-frontend"])
+                    .args([
+                        "systemctl",
+                        "restart",
+                        "lacis-proxy-gateway",
+                        "lacis-proxy-frontend",
+                    ])
                     .output();
             }
             _ => {
@@ -312,5 +323,8 @@ pub async fn trigger_manual_restart(
         }
     });
 
-    Ok(Json(SuccessResponse::new(&format!("Restart initiated for: {}", service))))
+    Ok(Json(SuccessResponse::new(&format!(
+        "Restart initiated for: {}",
+        service
+    ))))
 }

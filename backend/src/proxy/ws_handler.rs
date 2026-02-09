@@ -30,7 +30,10 @@ pub async fn handle_websocket_upgrade(
     let ws_url = match http_to_ws_url(&target_url) {
         Some(url) => url,
         None => {
-            tracing::error!("Failed to convert target URL to WebSocket URL: {}", target_url);
+            tracing::error!(
+                "Failed to convert target URL to WebSocket URL: {}",
+                target_url
+            );
             return (StatusCode::BAD_GATEWAY, "Invalid upstream WebSocket URL").into_response();
         }
     };
@@ -41,8 +44,16 @@ pub async fn handle_websocket_upgrade(
 
     ws.on_upgrade(move |socket| {
         websocket_bridge(
-            socket, ws_url, state, route_id, route_target, timeout_ms, client_ip, path,
-            user_agent, referer,
+            socket,
+            ws_url,
+            state,
+            route_id,
+            route_target,
+            timeout_ms,
+            client_ip,
+            path,
+            user_agent,
+            referer,
         )
     })
 }
@@ -68,15 +79,16 @@ async fn websocket_bridge(
 
     let upstream_socket = match upstream_result {
         Ok(Ok((stream, _response))) => {
-            tracing::info!(
-                "WebSocket upstream connected: {} -> {}",
-                path,
-                ws_url
-            );
+            tracing::info!("WebSocket upstream connected: {} -> {}", path, ws_url);
             stream
         }
         Ok(Err(e)) => {
-            tracing::error!("WebSocket upstream connection failed: {} -> {}: {}", path, ws_url, e);
+            tracing::error!(
+                "WebSocket upstream connection failed: {} -> {}: {}",
+                path,
+                ws_url,
+                e
+            );
             log_ws_access(
                 &state,
                 &client_ip,
@@ -92,7 +104,11 @@ async fn websocket_bridge(
             return;
         }
         Err(_) => {
-            tracing::error!("WebSocket upstream connection timed out: {} -> {}", path, ws_url);
+            tracing::error!(
+                "WebSocket upstream connection timed out: {} -> {}",
+                path,
+                ws_url
+            );
             log_ws_access(
                 &state,
                 &client_ip,
@@ -214,7 +230,9 @@ fn axum_to_tungstenite(msg: AxumMessage) -> Option<TungsteniteMessage> {
         AxumMessage::Pong(data) => Some(TungsteniteMessage::Pong(data.to_vec())),
         AxumMessage::Close(frame) => {
             let close_frame = frame.map(|f| tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(f.code),
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(
+                    f.code,
+                ),
                 reason: f.reason.to_string().into(),
             });
             Some(TungsteniteMessage::Close(close_frame))

@@ -121,6 +121,7 @@ export type DataSource =
   | 'openwrt'
   | 'external'
   | 'logic'
+  | 'manual'
   | 'lpg';
 
 export type EdgeType =

@@ -14,14 +14,24 @@ use crate::models::{
 use super::MongoDb;
 
 /// Build MongoDB filter conditions for IP exclusion
-fn build_ip_exclusion_conditions(exclude_ips: &Option<String>, exclude_lan: &Option<bool>) -> Vec<bson::Document> {
+fn build_ip_exclusion_conditions(
+    exclude_ips: &Option<String>,
+    exclude_lan: &Option<bool>,
+) -> Vec<bson::Document> {
     let mut conditions = Vec::new();
 
     // 特定IPの除外 ($nin)
     if let Some(ref ips) = exclude_ips {
-        let ip_list: Vec<&str> = ips.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let ip_list: Vec<&str> = ips
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
         if !ip_list.is_empty() {
-            let bson_list: Vec<bson::Bson> = ip_list.iter().map(|s| bson::Bson::String(s.to_string())).collect();
+            let bson_list: Vec<bson::Bson> = ip_list
+                .iter()
+                .map(|s| bson::Bson::String(s.to_string()))
+                .collect();
             conditions.push(doc! { "ip": { "$nin": bson_list } });
         }
     }
@@ -39,7 +49,11 @@ fn build_ip_exclusion_conditions(exclude_ips: &Option<String>, exclude_lan: &Opt
 }
 
 /// Merge IP exclusion conditions into an existing match document using $and
-fn apply_ip_exclusion(match_doc: &mut bson::Document, exclude_ips: &Option<String>, exclude_lan: &Option<bool>) {
+fn apply_ip_exclusion(
+    match_doc: &mut bson::Document,
+    exclude_ips: &Option<String>,
+    exclude_lan: &Option<bool>,
+) {
     let exclusion = build_ip_exclusion_conditions(exclude_ips, exclude_lan);
     if !exclusion.is_empty() {
         let original = std::mem::take(match_doc);

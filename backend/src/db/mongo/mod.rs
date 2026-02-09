@@ -4,13 +4,13 @@ mod access_log;
 pub mod external;
 mod ip_history;
 pub mod omada;
-pub mod operation_logs;
 pub mod openwrt;
+pub mod operation_logs;
 mod security_events;
 pub mod topology;
 
-use mongodb::{Client, Database};
 use mongodb::bson::doc;
+use mongodb::{Client, Database};
 
 use crate::config::Config;
 
@@ -61,28 +61,17 @@ impl MongoDb {
         lacis_id: &str,
     ) -> Result<bool, String> {
         let (collection_name, filter) = match source {
-            "omada" => (
-                "omada_devices",
-                doc! { "mac": device_id },
-            ),
-            "openwrt" => (
-                "openwrt_routers",
-                doc! { "router_id": device_id },
-            ),
-            "external" => (
-                "external_devices",
-                doc! { "device_id": device_id },
-            ),
+            "omada" => ("omada_devices", doc! { "mac": device_id }),
+            "openwrt" => ("openwrt_routers", doc! { "router_id": device_id }),
+            "external" => ("external_devices", doc! { "device_id": device_id }),
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        let collection = self.db.collection::<mongodb::bson::Document>(collection_name);
+        let collection = self
+            .db
+            .collection::<mongodb::bson::Document>(collection_name);
         let result = collection
-            .update_one(
-                filter,
-                doc! { "$set": { "lacis_id": lacis_id } },
-                None,
-            )
+            .update_one(filter, doc! { "$set": { "lacis_id": lacis_id } }, None)
             .await
             .map_err(|e| format!("Failed to assign lacis_id: {}", e))?;
 

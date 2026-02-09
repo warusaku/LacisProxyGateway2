@@ -18,8 +18,8 @@ use serde::Deserialize;
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
 use crate::models::{
-    ApiKeyRequest, ApiKeyResponse, AuthResponse, AuthUser,
-    LacisOathLoginRequest, LocalLoginRequest, SessionClaims,
+    ApiKeyRequest, ApiKeyResponse, AuthResponse, AuthUser, LacisOathLoginRequest,
+    LocalLoginRequest, SessionClaims,
 };
 use crate::proxy::ProxyState;
 
@@ -172,8 +172,7 @@ pub async fn login_lacisoath(
 /// Returns OAuth 2.0 client config for frontend (no secrets exposed)
 pub async fn lacisoath_config(State(state): State<ProxyState>) -> impl IntoResponse {
     let auth = &state.auth_config;
-    let enabled =
-        !auth.lacisoath_client_id.is_empty() && !auth.lacisoath_client_secret.is_empty();
+    let enabled = !auth.lacisoath_client_id.is_empty() && !auth.lacisoath_client_secret.is_empty();
 
     Json(serde_json::json!({
         "enabled": enabled,
@@ -186,10 +185,7 @@ pub async fn lacisoath_config(State(state): State<ProxyState>) -> impl IntoRespo
 /// GET /api/auth/me
 /// Return current authenticated user info
 pub async fn auth_me(Extension(user): Extension<AuthUser>) -> impl IntoResponse {
-    Json(AuthResponse {
-        ok: true,
-        user,
-    })
+    Json(AuthResponse { ok: true, user })
 }
 
 /// POST /api/auth/logout

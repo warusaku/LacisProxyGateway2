@@ -15,7 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
 use crate::error::AppError;
 use crate::models::{AuthUser, SessionClaims};
@@ -30,22 +30,20 @@ pub async fn require_auth(
     next: Next,
 ) -> Response {
     // Bearer token takes priority (AI agent / CLI), then fall back to cookie (browser)
-    let token = extract_bearer_token(req.headers())
-        .or_else(|| extract_session_cookie(req.headers()));
+    let token =
+        extract_bearer_token(req.headers()).or_else(|| extract_session_cookie(req.headers()));
 
     match token {
-        Some(t) => {
-            match decode_session(&t, &state.auth_config.jwt_secret) {
-                Ok(claims) => {
-                    req.extensions_mut().insert(AuthUser::from(claims));
-                    next.run(req).await
-                }
-                Err(e) => {
-                    tracing::debug!("Invalid session token: {}", e);
-                    unauthorized_response()
-                }
+        Some(t) => match decode_session(&t, &state.auth_config.jwt_secret) {
+            Ok(claims) => {
+                req.extensions_mut().insert(AuthUser::from(claims));
+                next.run(req).await
             }
-        }
+            Err(e) => {
+                tracing::debug!("Invalid session token: {}", e);
+                unauthorized_response()
+            }
+        },
         None => unauthorized_response(),
     }
 }

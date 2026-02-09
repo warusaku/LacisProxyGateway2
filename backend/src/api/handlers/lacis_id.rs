@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::lacis_id::{compute_network_device_lacis_id, default_product_code, normalize_mac_for_lacis_id};
+use crate::lacis_id::{
+    compute_network_device_lacis_id, default_product_code, normalize_mac_for_lacis_id,
+};
 use crate::models::AuthUser;
 use crate::proxy::ProxyState;
 
@@ -32,7 +34,10 @@ pub async fn lacis_id_candidates(
 ) -> Result<impl IntoResponse, AppError> {
     let mongo = &state.app_state.mongo;
 
-    let omada_devices = mongo.get_omada_devices(None, None).await.unwrap_or_default();
+    let omada_devices = mongo
+        .get_omada_devices(None, None)
+        .await
+        .unwrap_or_default();
     let openwrt_routers = mongo.list_openwrt_routers().await.unwrap_or_default();
     let external_devices = mongo.list_external_devices().await.unwrap_or_default();
 
@@ -144,11 +149,8 @@ pub async fn lacis_id_compute(
         ));
     }
 
-    let lacis_id = compute_network_device_lacis_id(
-        &payload.product_type,
-        &payload.mac,
-        product_code,
-    );
+    let lacis_id =
+        compute_network_device_lacis_id(&payload.product_type, &payload.mac, product_code);
 
     Ok(Json(serde_json::json!({
         "lacis_id": lacis_id,

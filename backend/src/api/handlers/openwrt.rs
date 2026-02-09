@@ -148,9 +148,7 @@ pub async fn delete_router(
 }
 
 /// POST /api/openwrt/routers/test - Test SSH connection
-pub async fn test_router_connection(
-    Json(req): Json<TestRouterRequest>,
-) -> Json<serde_json::Value> {
+pub async fn test_router_connection(Json(req): Json<TestRouterRequest>) -> Json<serde_json::Value> {
     match OpenWrtManager::test_connection(
         &req.ip,
         req.port.unwrap_or(22),

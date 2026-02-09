@@ -388,7 +388,9 @@ impl OmadaClient {
             return Err(format!("Controller info error: {:?}", result.msg));
         }
 
-        result.result.ok_or("No controller info in response".to_string())
+        result
+            .result
+            .ok_or("No controller info in response".to_string())
     }
 
     /// Get controller info for this client's configured controller
@@ -453,10 +455,7 @@ impl OmadaClient {
     // ========================================================================
 
     /// Get devices for a specific site
-    pub async fn get_devices_for_site(
-        &self,
-        site_id: &str,
-    ) -> Result<Vec<OmadaDevice>, String> {
+    pub async fn get_devices_for_site(&self, site_id: &str) -> Result<Vec<OmadaDevice>, String> {
         let token = self.ensure_token().await?;
         let config = self.config.read().await;
         let cfg = config.as_ref().ok_or("Omada not configured")?;
@@ -544,10 +543,7 @@ impl OmadaClient {
     // ========================================================================
 
     /// Get WireGuard peers for a specific site
-    pub async fn get_wireguard_peers(
-        &self,
-        site_id: &str,
-    ) -> Result<Vec<WireGuardPeer>, String> {
+    pub async fn get_wireguard_peers(&self, site_id: &str) -> Result<Vec<WireGuardPeer>, String> {
         let token = self.ensure_token().await?;
         let config = self.config.read().await;
         let cfg = config.as_ref().ok_or("Omada not configured")?;
@@ -811,11 +807,7 @@ impl OmadaClient {
     }
 
     /// Create a temporary client for connection testing (no DB, no state)
-    pub fn create_test_client(
-        base_url: &str,
-        client_id: &str,
-        client_secret: &str,
-    ) -> Self {
+    pub fn create_test_client(base_url: &str, client_id: &str, client_secret: &str) -> Self {
         let http_client = Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(10))
@@ -932,11 +924,7 @@ impl OmadaClient {
     }
 
     /// Delete a WireGuard peer via Omada OpenAPI
-    pub async fn delete_wireguard_peer(
-        &self,
-        site_id: &str,
-        peer_id: &str,
-    ) -> Result<(), String> {
+    pub async fn delete_wireguard_peer(&self, site_id: &str, peer_id: &str) -> Result<(), String> {
         let token = self.ensure_token().await?;
         let config = self.config.read().await;
         let cfg = config.as_ref().ok_or("Omada not configured")?;

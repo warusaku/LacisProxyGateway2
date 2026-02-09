@@ -26,11 +26,7 @@ pub fn compute_network_device_lacis_id(
 }
 
 /// araneaDevice lacisID: [prefix=3][productType(3)][MAC(12)][productCode(4)] = 20 chars
-pub fn compute_aranea_device_lacis_id(
-    product_type: &str,
-    mac: &str,
-    product_code: &str,
-) -> String {
+pub fn compute_aranea_device_lacis_id(product_type: &str, mac: &str, product_code: &str) -> String {
     let normalized_mac = normalize_mac_for_lacis_id(mac);
     format!("3{}{}{}", product_type, normalized_mac, product_code)
 }
@@ -52,10 +48,19 @@ mod tests {
 
     #[test]
     fn test_normalize_mac() {
-        assert_eq!(normalize_mac_for_lacis_id("AA:BB:CC:DD:EE:FF"), "AABBCCDDEEFF");
-        assert_eq!(normalize_mac_for_lacis_id("aa-bb-cc-dd-ee-ff"), "AABBCCDDEEFF");
+        assert_eq!(
+            normalize_mac_for_lacis_id("AA:BB:CC:DD:EE:FF"),
+            "AABBCCDDEEFF"
+        );
+        assert_eq!(
+            normalize_mac_for_lacis_id("aa-bb-cc-dd-ee-ff"),
+            "AABBCCDDEEFF"
+        );
         assert_eq!(normalize_mac_for_lacis_id("AABBCCDDEEFF"), "AABBCCDDEEFF");
-        assert_eq!(normalize_mac_for_lacis_id("aa:bb:cc:dd:ee:ff"), "AABBCCDDEEFF");
+        assert_eq!(
+            normalize_mac_for_lacis_id("aa:bb:cc:dd:ee:ff"),
+            "AABBCCDDEEFF"
+        );
     }
 
     #[test]

@@ -279,9 +279,7 @@ impl MongoDb {
     }
 
     /// Get OpenWrt summary counts
-    pub async fn get_openwrt_summary(
-        &self,
-    ) -> Result<serde_json::Value, String> {
+    pub async fn get_openwrt_summary(&self) -> Result<serde_json::Value, String> {
         let total_routers = self
             .db
             .collection::<bson::Document>("openwrt_routers")

@@ -9,7 +9,10 @@ use axum::{
 
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired, CreateDdnsRequest, DdnsProvider, LinkOmadaRequest, UpdateDdnsRequest};
+use crate::models::{
+    AuthUser, ConfirmQuery, ConfirmRequired, CreateDdnsRequest, DdnsProvider, LinkOmadaRequest,
+    UpdateDdnsRequest,
+};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -137,7 +140,9 @@ pub async fn delete_ddns(
 
     if deleted {
         tracing::info!("Deleted DDNS config {}", id);
-        Ok(Json(serde_json::json!(SuccessResponse::new("DDNS configuration deleted"))))
+        Ok(Json(serde_json::json!(SuccessResponse::new(
+            "DDNS configuration deleted"
+        ))))
     } else {
         Err(AppError::NotFound(format!("DDNS config {} not found", id)))
     }
@@ -167,7 +172,9 @@ pub async fn trigger_ddns_update(
         .await
         .map_err(|e| AppError::InternalError(format!("DDNS update failed: {}", e)))?;
 
-    Ok(Json(SuccessResponse::new("DDNS update completed successfully")))
+    Ok(Json(SuccessResponse::new(
+        "DDNS update completed successfully",
+    )))
 }
 
 /// GET /api/ddns/integrated - List DDNS configs with Omada WAN IP comparison
@@ -175,7 +182,12 @@ pub async fn list_ddns_integrated(
     State(state): State<ProxyState>,
 ) -> Result<impl IntoResponse, AppError> {
     let configs = state.app_state.mysql.list_ddns().await?;
-    let controllers = state.app_state.mongo.list_omada_controllers().await.unwrap_or_default();
+    let controllers = state
+        .app_state
+        .mongo
+        .list_omada_controllers()
+        .await
+        .unwrap_or_default();
 
     let mut results = Vec::new();
 
@@ -327,9 +339,13 @@ pub async fn get_ddns_port_forwards(
         AppError::BadRequest("DDNS config is not linked to an Omada controller".to_string())
     })?;
 
-    let client = state.omada_manager.get_client(ctrl_id).await.ok_or_else(|| {
-        AppError::NotFound(format!("Omada client for controller {} not found", ctrl_id))
-    })?;
+    let client = state
+        .omada_manager
+        .get_client(ctrl_id)
+        .await
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Omada client for controller {} not found", ctrl_id))
+        })?;
 
     let rules = client
         .get_port_forwarding()

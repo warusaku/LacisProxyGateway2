@@ -89,7 +89,9 @@ impl AraneaClient {
         reg: &AraneaDeviceRegistration,
     ) -> Result<serde_json::Value, String> {
         if !self.is_configured() {
-            return Err("Aranea not configured: missing tid/tenant_lacis_id/tenant_cic".to_string());
+            return Err(
+                "Aranea not configured: missing tid/tenant_lacis_id/tenant_cic".to_string(),
+            );
         }
 
         let payload = DeviceGateRequest {

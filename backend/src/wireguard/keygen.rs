@@ -1,8 +1,8 @@
 //! WireGuard Curve25519 key pair generation
 
 use base64::Engine;
-use x25519_dalek::{PublicKey, StaticSecret};
 use rand::rngs::OsRng;
+use x25519_dalek::{PublicKey, StaticSecret};
 
 /// Generated WireGuard key pair (Base64 encoded)
 #[derive(Debug, Clone, serde::Serialize)]

@@ -66,7 +66,12 @@ impl DdnsUpdater {
         };
 
         // Record current public IP to ip_history (always, so history is complete)
-        if let Err(e) = self.app_state.mongo.upsert_ip_history(&current_ip, "server").await {
+        if let Err(e) = self
+            .app_state
+            .mongo
+            .upsert_ip_history(&current_ip, "server")
+            .await
+        {
             tracing::warn!("Failed to record server IP to history: {}", e);
         }
 

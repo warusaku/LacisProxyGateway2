@@ -207,15 +207,21 @@ mod tests {
         let router = ProxyRouter::new(routes);
 
         // Should match domain1's route
-        let matched = router.match_route("/api/test", Some("domain1.dyndns.org")).unwrap();
+        let matched = router
+            .match_route("/api/test", Some("domain1.dyndns.org"))
+            .unwrap();
         assert_eq!(matched.target, "http://api1:8080");
 
         // Should match domain2's route
-        let matched = router.match_route("/api/test", Some("domain2.dyndns.org")).unwrap();
+        let matched = router
+            .match_route("/api/test", Some("domain2.dyndns.org"))
+            .unwrap();
         assert_eq!(matched.target, "http://api2:8080");
 
         // Unknown host should fall back to non-DDNS route
-        let matched = router.match_route("/api/test", Some("unknown.com")).unwrap();
+        let matched = router
+            .match_route("/api/test", Some("unknown.com"))
+            .unwrap();
         assert_eq!(matched.target, "http://default:8080");
 
         // No host should fall back to non-DDNS route

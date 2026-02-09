@@ -1,14 +1,14 @@
 //! HTTP handlers module
 
 pub mod agent;
-pub mod auth;
 pub mod aranea;
 mod audit;
+pub mod auth;
 mod dashboard;
 mod ddns;
+mod diagnostics;
 pub mod external;
 mod lacis_id;
-mod diagnostics;
 mod nginx;
 mod omada;
 pub mod openwrt;

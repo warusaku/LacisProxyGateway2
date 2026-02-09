@@ -7,17 +7,24 @@ use std::sync::Arc;
 use tokio::time::{self, Duration};
 
 use crate::db::mongo::MongoDb;
+use crate::node_order::NodeOrderIngester;
 use crate::openwrt::manager::OpenWrtManager;
 
 /// Background synchronization service for OpenWrt/AsusWrt routers
 pub struct OpenWrtSyncer {
     manager: Arc<OpenWrtManager>,
     mongo: Arc<MongoDb>,
+    ingester: NodeOrderIngester,
 }
 
 impl OpenWrtSyncer {
     pub fn new(manager: Arc<OpenWrtManager>, mongo: Arc<MongoDb>) -> Self {
-        Self { manager, mongo }
+        let ingester = NodeOrderIngester::new(mongo.clone());
+        Self {
+            manager,
+            mongo,
+            ingester,
+        }
     }
 
     /// Start the background sync loop (runs forever)
@@ -49,7 +56,16 @@ impl OpenWrtSyncer {
                 let _ = self
                     .mongo
                     .update_openwrt_router_status(
-                        &id, "error", None, None, None, None, None, 0, None, Some(&e),
+                        &id,
+                        "error",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        0,
+                        None,
+                        Some(&e),
                     )
                     .await;
             }
@@ -90,6 +106,15 @@ impl OpenWrtSyncer {
         self.mongo
             .upsert_openwrt_clients(router_id, &clients)
             .await?;
+
+        // 5. Ingest into nodeOrder SSoT
+        if let Err(e) = self.ingester.ingest_openwrt(router_id).await {
+            tracing::warn!(
+                "[OpenWrtSync] NodeOrder ingestion failed for router {}: {}",
+                router_id,
+                e
+            );
+        }
 
         tracing::debug!(
             "[OpenWrtSync] Router {} synced: {} clients",

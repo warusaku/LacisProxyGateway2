@@ -163,10 +163,7 @@ pub struct OmadaSummaryDoc {
 
 impl MongoDb {
     /// Upsert a controller document (key: controller_id)
-    pub async fn upsert_omada_controller(
-        &self,
-        doc: &OmadaControllerDoc,
-    ) -> Result<(), String> {
+    pub async fn upsert_omada_controller(&self, doc: &OmadaControllerDoc) -> Result<(), String> {
         let collection = self.db.collection::<bson::Document>("omada_controllers");
 
         let filter = doc! { "controller_id": &doc.controller_id };
@@ -233,8 +230,8 @@ impl MongoDb {
 
         match doc {
             Some(d) => {
-                let ctrl = bson::from_document(d)
-                    .map_err(|e| format!("Deserialize controller: {}", e))?;
+                let ctrl =
+                    bson::from_document(d).map_err(|e| format!("Deserialize controller: {}", e))?;
                 Ok(Some(ctrl))
             }
             None => Ok(None),

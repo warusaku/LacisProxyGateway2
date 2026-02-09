@@ -9,7 +9,9 @@ use axum::{
 
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired, CreateRouteRequest, UpdateRouteRequest};
+use crate::models::{
+    AuthUser, ConfirmQuery, ConfirmRequired, CreateRouteRequest, UpdateRouteRequest,
+};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -68,8 +70,13 @@ pub async fn list_server_routes(
                                         }));
 
                                         // Find fid/tid from controller sites
-                                        if let Some(ctrl) = omada_controllers.iter().find(|c| c.controller_id == dev.controller_id) {
-                                            if let Some(site) = ctrl.sites.iter().find(|s| s.site_id == dev.site_id) {
+                                        if let Some(ctrl) = omada_controllers
+                                            .iter()
+                                            .find(|c| c.controller_id == dev.controller_id)
+                                        {
+                                            if let Some(site) =
+                                                ctrl.sites.iter().find(|s| s.site_id == dev.site_id)
+                                            {
                                                 fid = site.fid.clone();
                                                 tid = site.tid.clone();
                                             }
@@ -164,10 +171,13 @@ pub async fn create_route(
         .await;
 
     // Send Discord notification
-    state.notifier.notify_config_change(
-        "Route Created",
-        &format!("New route added: `{}` → `{}`", payload.path, payload.target),
-    ).await;
+    state
+        .notifier
+        .notify_config_change(
+            "Route Created",
+            &format!("New route added: `{}` → `{}`", payload.path, payload.target),
+        )
+        .await;
 
     // Reload proxy routes
     if let Err(e) = state.reload_routes().await {
@@ -219,50 +229,101 @@ pub async fn update_route(
 
             if let Some(ref new_path) = payload.path {
                 if &old.path != new_path {
-                    let _ = state.app_state.mysql.log_audit(
-                        "route", Some(id), "update", Some("path"),
-                        Some(&old.path), Some(new_path), "api", None,
-                    ).await;
+                    let _ = state
+                        .app_state
+                        .mysql
+                        .log_audit(
+                            "route",
+                            Some(id),
+                            "update",
+                            Some("path"),
+                            Some(&old.path),
+                            Some(new_path),
+                            "api",
+                            None,
+                        )
+                        .await;
                     changes.push(format!("path: `{}` → `{}`", old.path, new_path));
                 }
             }
 
             if let Some(ref new_target) = payload.target {
                 if &old.target != new_target {
-                    let _ = state.app_state.mysql.log_audit(
-                        "route", Some(id), "update", Some("target"),
-                        Some(&old.target), Some(new_target), "api", None,
-                    ).await;
+                    let _ = state
+                        .app_state
+                        .mysql
+                        .log_audit(
+                            "route",
+                            Some(id),
+                            "update",
+                            Some("target"),
+                            Some(&old.target),
+                            Some(new_target),
+                            "api",
+                            None,
+                        )
+                        .await;
                     changes.push(format!("target: `{}` → `{}`", old.target, new_target));
                 }
             }
 
             if let Some(new_active) = payload.active {
                 if old.active != new_active {
-                    let _ = state.app_state.mysql.log_audit(
-                        "route", Some(id), "update", Some("active"),
-                        Some(&old.active.to_string()), Some(&new_active.to_string()), "api", None,
-                    ).await;
+                    let _ = state
+                        .app_state
+                        .mysql
+                        .log_audit(
+                            "route",
+                            Some(id),
+                            "update",
+                            Some("active"),
+                            Some(&old.active.to_string()),
+                            Some(&new_active.to_string()),
+                            "api",
+                            None,
+                        )
+                        .await;
                     changes.push(format!("active: `{}` → `{}`", old.active, new_active));
                 }
             }
 
             if let Some(new_ws) = payload.websocket_support {
                 if old.websocket_support != new_ws {
-                    let _ = state.app_state.mysql.log_audit(
-                        "route", Some(id), "update", Some("websocket_support"),
-                        Some(&old.websocket_support.to_string()), Some(&new_ws.to_string()), "api", None,
-                    ).await;
-                    changes.push(format!("websocket_support: `{}` → `{}`", old.websocket_support, new_ws));
+                    let _ = state
+                        .app_state
+                        .mysql
+                        .log_audit(
+                            "route",
+                            Some(id),
+                            "update",
+                            Some("websocket_support"),
+                            Some(&old.websocket_support.to_string()),
+                            Some(&new_ws.to_string()),
+                            "api",
+                            None,
+                        )
+                        .await;
+                    changes.push(format!(
+                        "websocket_support: `{}` → `{}`",
+                        old.websocket_support, new_ws
+                    ));
                 }
             }
 
             // Send Discord notification if there were changes
             if !changes.is_empty() {
-                state.notifier.notify_config_change(
-                    "Route Updated",
-                    &format!("Route `{}` (ID: {}) modified:\n{}", old.path, id, changes.join("\n")),
-                ).await;
+                state
+                    .notifier
+                    .notify_config_change(
+                        "Route Updated",
+                        &format!(
+                            "Route `{}` (ID: {}) modified:\n{}",
+                            old.path,
+                            id,
+                            changes.join("\n")
+                        ),
+                    )
+                    .await;
             }
         }
 
@@ -300,7 +361,8 @@ pub async fn delete_route(
         return Ok(Json(serde_json::json!(ConfirmRequired {
             action: "delete_route".to_string(),
             target: target_info,
-            warning: "This will remove the proxy route. Active connections will be dropped.".to_string(),
+            warning: "This will remove the proxy route. Active connections will be dropped."
+                .to_string(),
             confirm_required: true,
         })));
     }
@@ -310,16 +372,29 @@ pub async fn delete_route(
     if deleted {
         // Log audit
         if let Some(ref r) = route {
-            let _ = state.app_state.mysql.log_audit(
-                "route", Some(id), "delete", None,
-                Some(&format!("{} -> {}", r.path, r.target)), None, "api", None,
-            ).await;
+            let _ = state
+                .app_state
+                .mysql
+                .log_audit(
+                    "route",
+                    Some(id),
+                    "delete",
+                    None,
+                    Some(&format!("{} -> {}", r.path, r.target)),
+                    None,
+                    "api",
+                    None,
+                )
+                .await;
 
             // Send Discord notification
-            state.notifier.notify_config_change(
-                "Route Deleted",
-                &format!("Route removed: `{}` → `{}`", r.path, r.target),
-            ).await;
+            state
+                .notifier
+                .notify_config_change(
+                    "Route Deleted",
+                    &format!("Route removed: `{}` → `{}`", r.path, r.target),
+                )
+                .await;
         }
 
         // Reload proxy routes
@@ -328,7 +403,9 @@ pub async fn delete_route(
         }
 
         tracing::info!("Deleted route {}", id);
-        Ok(Json(serde_json::json!(SuccessResponse::new("Route deleted"))))
+        Ok(Json(serde_json::json!(SuccessResponse::new(
+            "Route deleted"
+        ))))
     } else {
         Err(AppError::NotFound(format!("Route {} not found", id)))
     }

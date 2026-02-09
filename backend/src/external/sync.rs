@@ -9,16 +9,23 @@ use tokio::time::{self, Duration};
 use crate::db::mongo::MongoDb;
 use crate::external::manager::{DeviceProtocol, ExternalDeviceManager};
 use crate::external::mercury::MercuryClient;
+use crate::node_order::NodeOrderIngester;
 
 /// Background synchronization service for external devices
 pub struct ExternalSyncer {
     manager: Arc<ExternalDeviceManager>,
     mongo: Arc<MongoDb>,
+    ingester: NodeOrderIngester,
 }
 
 impl ExternalSyncer {
     pub fn new(manager: Arc<ExternalDeviceManager>, mongo: Arc<MongoDb>) -> Self {
-        Self { manager, mongo }
+        let ingester = NodeOrderIngester::new(mongo.clone());
+        Self {
+            manager,
+            mongo,
+            ingester,
+        }
     }
 
     /// Start the background sync loop (runs forever)
@@ -110,6 +117,15 @@ impl ExternalSyncer {
         self.mongo
             .upsert_external_clients(device_id, &clients)
             .await?;
+
+        // Ingest into nodeOrder SSoT
+        if let Err(e) = self.ingester.ingest_external(device_id).await {
+            tracing::warn!(
+                "[ExternalSync] NodeOrder ingestion failed for device {}: {}",
+                device_id,
+                e
+            );
+        }
 
         tracing::debug!(
             "[ExternalSync] Device {} synced: {} clients",

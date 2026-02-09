@@ -68,7 +68,12 @@ pub async fn register_controller(
 
     match state
         .omada_manager
-        .register_controller(&req.display_name, &req.base_url, &req.client_id, &req.client_secret)
+        .register_controller(
+            &req.display_name,
+            &req.base_url,
+            &req.client_id,
+            &req.client_secret,
+        )
         .await
     {
         Ok(doc) => Ok(Json(serde_json::json!({
@@ -83,9 +88,7 @@ pub async fn register_controller(
 }
 
 /// GET /api/omada/controllers - List all controllers
-pub async fn list_controllers(
-    State(state): State<ProxyState>,
-) -> Json<serde_json::Value> {
+pub async fn list_controllers(State(state): State<ProxyState>) -> Json<serde_json::Value> {
     match state.app_state.mongo.list_omada_controllers().await {
         Ok(controllers) => Json(serde_json::json!({
             "ok": true,
@@ -130,7 +133,13 @@ pub async fn delete_controller(
 
     // Confirm guard
     if !confirm.confirm {
-        let ctrl = state.app_state.mongo.get_omada_controller(&id).await.ok().flatten();
+        let ctrl = state
+            .app_state
+            .mongo
+            .get_omada_controller(&id)
+            .await
+            .ok()
+            .flatten();
         let target_info = ctrl
             .map(|c| format!("Omada controller '{}' ({})", c.display_name, id))
             .unwrap_or_else(|| format!("Omada controller {}", id));
@@ -138,7 +147,8 @@ pub async fn delete_controller(
         return Ok(Json(serde_json::json!(ConfirmRequired {
             action: "delete_controller".to_string(),
             target: target_info,
-            warning: "This will remove the Omada controller and all synced device/client data.".to_string(),
+            warning: "This will remove the Omada controller and all synced device/client data."
+                .to_string(),
             confirm_required: true,
         })));
     }
@@ -172,10 +182,8 @@ pub async fn sync_controller(
 ) -> Result<impl IntoResponse, AppError> {
     require_permission(&user, 50)?;
 
-    let syncer = crate::omada::OmadaSyncer::new(
-        state.omada_manager.clone(),
-        state.app_state.mongo.clone(),
-    );
+    let syncer =
+        crate::omada::OmadaSyncer::new(state.omada_manager.clone(), state.app_state.mongo.clone());
 
     match syncer.sync_one(&id).await {
         Ok(()) => Ok(Json(serde_json::json!({
@@ -263,9 +271,7 @@ pub async fn get_omada_wireguard(
 }
 
 /// GET /api/omada/summary - Aggregated summary
-pub async fn get_omada_summary(
-    State(state): State<ProxyState>,
-) -> Json<serde_json::Value> {
+pub async fn get_omada_summary(State(state): State<ProxyState>) -> Json<serde_json::Value> {
     match state.app_state.mongo.get_omada_summary().await {
         Ok(summary) => Json(serde_json::json!({
             "ok": true,
@@ -283,9 +289,7 @@ pub async fn get_omada_summary(
 // ============================================================================
 
 /// GET /api/omada/status - Legacy: first controller's network status
-pub async fn get_network_status(
-    State(state): State<ProxyState>,
-) -> Json<serde_json::Value> {
+pub async fn get_network_status(State(state): State<ProxyState>) -> Json<serde_json::Value> {
     // Use first registered controller, or fall back to MySQL-based client
     let ids = state.omada_manager.list_controller_ids().await;
 
@@ -303,9 +307,7 @@ pub async fn get_network_status(
 }
 
 /// POST /api/omada/test - Legacy: first controller's connection test
-pub async fn test_connection(
-    State(state): State<ProxyState>,
-) -> Json<serde_json::Value> {
+pub async fn test_connection(State(state): State<ProxyState>) -> Json<serde_json::Value> {
     let client = OmadaClient::new(state.app_state.mysql.clone());
 
     match client.load_config().await {

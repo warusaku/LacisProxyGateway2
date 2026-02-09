@@ -10,7 +10,9 @@ use serde::Deserialize;
 
 use crate::api::auth_middleware::require_permission;
 use crate::error::AppError;
-use crate::models::{AuthUser, BlockIpRequest, ConfirmQuery, ConfirmRequired, SecurityEventSearchQuery};
+use crate::models::{
+    AuthUser, BlockIpRequest, ConfirmQuery, ConfirmRequired, SecurityEventSearchQuery,
+};
 use crate::proxy::ProxyState;
 
 use super::SuccessResponse;
@@ -99,7 +101,8 @@ pub async fn unblock_ip(
         return Ok(Json(serde_json::json!(ConfirmRequired {
             action: "unblock_ip".to_string(),
             target: target_info,
-            warning: "This will unblock the IP address, allowing it to access the system again.".to_string(),
+            warning: "This will unblock the IP address, allowing it to access the system again."
+                .to_string(),
             confirm_required: true,
         })));
     }
@@ -110,7 +113,9 @@ pub async fn unblock_ip(
         if let Some(b) = &blocked {
             tracing::info!("Unblocked IP: {}", b.ip);
         }
-        Ok(Json(serde_json::json!(SuccessResponse::new("IP unblocked"))))
+        Ok(Json(serde_json::json!(SuccessResponse::new(
+            "IP unblocked"
+        ))))
     } else {
         Err(AppError::NotFound(format!("Blocked IP {} not found", id)))
     }
@@ -148,10 +153,6 @@ pub async fn search_security_events(
     State(state): State<ProxyState>,
     Query(query): Query<SecurityEventSearchQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let events = state
-        .app_state
-        .mongo
-        .search_security_events(&query)
-        .await?;
+    let events = state.app_state.mongo.search_security_events(&query).await?;
     Ok(Json(events))
 }

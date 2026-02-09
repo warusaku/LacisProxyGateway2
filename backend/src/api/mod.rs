@@ -67,10 +67,7 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/ddns/:id", delete(handlers::delete_ddns))
         .route("/api/ddns/:id/update", post(handlers::trigger_ddns_update))
         .route("/api/ddns/integrated", get(handlers::list_ddns_integrated))
-        .route(
-            "/api/ddns/:id/link-omada",
-            put(handlers::link_ddns_omada),
-        )
+        .route("/api/ddns/:id/link-omada", put(handlers::link_ddns_omada))
         .route(
             "/api/ddns/:id/port-forwards",
             get(handlers::get_ddns_port_forwards),
@@ -142,25 +139,22 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/dashboard/error-summary",
             get(handlers::get_error_summary),
         )
-        .route(
-            "/api/dashboard/ssl-status",
-            get(handlers::get_ssl_status),
-        )
+        .route("/api/dashboard/ssl-status", get(handlers::get_ssl_status))
         .route(
             "/api/dashboard/server-health",
             get(handlers::get_server_health),
         )
         // Omada: Controller management
-        .route("/api/omada/controllers", post(handlers::register_controller))
+        .route(
+            "/api/omada/controllers",
+            post(handlers::register_controller),
+        )
         .route("/api/omada/controllers", get(handlers::list_controllers))
         .route(
             "/api/omada/controllers/test",
             post(handlers::test_controller_connection),
         )
-        .route(
-            "/api/omada/controllers/:id",
-            get(handlers::get_controller),
-        )
+        .route("/api/omada/controllers/:id", get(handlers::get_controller))
         .route(
             "/api/omada/controllers/:id",
             delete(handlers::delete_controller),
@@ -178,7 +172,10 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         .route("/api/omada/status", get(handlers::get_network_status))
         .route("/api/omada/test", post(handlers::test_connection))
         // OpenWrt: Router management
-        .route("/api/openwrt/routers", post(handlers::openwrt::register_router))
+        .route(
+            "/api/openwrt/routers",
+            post(handlers::openwrt::register_router),
+        )
         .route("/api/openwrt/routers", get(handlers::openwrt::list_routers))
         .route(
             "/api/openwrt/routers/test",
@@ -196,11 +193,23 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/openwrt/routers/:id/poll",
             post(handlers::openwrt::poll_router),
         )
-        .route("/api/openwrt/clients", get(handlers::openwrt::get_openwrt_clients))
-        .route("/api/openwrt/summary", get(handlers::openwrt::get_openwrt_summary))
+        .route(
+            "/api/openwrt/clients",
+            get(handlers::openwrt::get_openwrt_clients),
+        )
+        .route(
+            "/api/openwrt/summary",
+            get(handlers::openwrt::get_openwrt_summary),
+        )
         // WireGuard: Key gen, peer CRUD, config
-        .route("/api/wireguard/keypair", post(handlers::wireguard::generate_keypair))
-        .route("/api/wireguard/peers", post(handlers::wireguard::create_peer))
+        .route(
+            "/api/wireguard/keypair",
+            post(handlers::wireguard::generate_keypair),
+        )
+        .route(
+            "/api/wireguard/peers",
+            post(handlers::wireguard::create_peer),
+        )
         .route("/api/wireguard/peers", get(handlers::wireguard::get_peers))
         .route(
             "/api/wireguard/peers/:id",
@@ -210,11 +219,23 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/wireguard/peers/:id",
             delete(handlers::wireguard::delete_peer),
         )
-        .route("/api/wireguard/config", post(handlers::wireguard::generate_config))
-        .route("/api/wireguard/interfaces", get(handlers::wireguard::get_interfaces))
+        .route(
+            "/api/wireguard/config",
+            post(handlers::wireguard::generate_config),
+        )
+        .route(
+            "/api/wireguard/interfaces",
+            get(handlers::wireguard::get_interfaces),
+        )
         // External: Device management
-        .route("/api/external/devices", post(handlers::external::register_device))
-        .route("/api/external/devices", get(handlers::external::list_devices))
+        .route(
+            "/api/external/devices",
+            post(handlers::external::register_device),
+        )
+        .route(
+            "/api/external/devices",
+            get(handlers::external::list_devices),
+        )
         .route(
             "/api/external/devices/test",
             post(handlers::external::test_device_connection),
@@ -231,22 +252,58 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             "/api/external/devices/:id/poll",
             post(handlers::external::poll_device),
         )
-        .route("/api/external/clients", get(handlers::external::get_external_clients))
-        .route("/api/external/summary", get(handlers::external::get_external_summary))
+        .route(
+            "/api/external/clients",
+            get(handlers::external::get_external_clients),
+        )
+        .route(
+            "/api/external/summary",
+            get(handlers::external::get_external_summary),
+        )
         // Topology (CelestialGlobe)
         .route("/api/topology", get(handlers::get_topology))
         .route("/api/topology/v2", get(handlers::get_topology_v2))
-        .route("/api/topology/layout", post(handlers::recalc_topology_layout))
-        .route("/api/topology/nodes/batch-positions", put(handlers::batch_update_positions))
-        .route("/api/topology/nodes/:id/position", put(handlers::update_node_position))
-        .route("/api/topology/nodes/:id/label", put(handlers::update_node_label).delete(handlers::delete_node_label))
-        .route("/api/topology/nodes/:id/parent", put(handlers::update_node_parent))
-        .route("/api/topology/nodes/:id/collapse", put(handlers::toggle_node_collapse))
-        .route("/api/topology/logic-devices", post(handlers::create_logic_device))
-        .route("/api/topology/logic-devices/:id", put(handlers::update_logic_device))
-        .route("/api/topology/logic-devices/:id", delete(handlers::delete_logic_device))
+        .route(
+            "/api/topology/layout",
+            post(handlers::recalc_topology_layout),
+        )
+        .route(
+            "/api/topology/nodes/batch-positions",
+            put(handlers::batch_update_positions),
+        )
+        .route(
+            "/api/topology/nodes/:id/position",
+            put(handlers::update_node_position),
+        )
+        .route(
+            "/api/topology/nodes/:id/label",
+            put(handlers::update_node_label).delete(handlers::delete_node_label),
+        )
+        .route(
+            "/api/topology/nodes/:id/parent",
+            put(handlers::update_node_parent),
+        )
+        .route(
+            "/api/topology/nodes/:id/collapse",
+            put(handlers::toggle_node_collapse),
+        )
+        .route(
+            "/api/topology/logic-devices",
+            post(handlers::create_logic_device),
+        )
+        .route(
+            "/api/topology/logic-devices/:id",
+            put(handlers::update_logic_device),
+        )
+        .route(
+            "/api/topology/logic-devices/:id",
+            delete(handlers::delete_logic_device),
+        )
         // araneaSDK
-        .route("/api/aranea/register", post(handlers::aranea_register_device))
+        .route(
+            "/api/aranea/register",
+            post(handlers::aranea_register_device),
+        )
         .route("/api/aranea/devices", get(handlers::aranea_list_devices))
         .route(
             "/api/aranea/devices/:lacis_id/state",
@@ -256,20 +313,35 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
         // Tools: sync triggers + network diagnostics
         .route("/api/tools/sync/omada", post(handlers::tool_sync_omada))
         .route("/api/tools/sync/openwrt", post(handlers::tool_sync_openwrt))
-        .route("/api/tools/sync/external", post(handlers::tool_sync_external))
-        .route("/api/tools/ddns/update-all", post(handlers::tool_ddns_update_all))
+        .route(
+            "/api/tools/sync/external",
+            post(handlers::tool_sync_external),
+        )
+        .route(
+            "/api/tools/ddns/update-all",
+            post(handlers::tool_ddns_update_all),
+        )
         .route("/api/tools/network/ping", post(handlers::tool_network_ping))
         .route("/api/tools/network/dns", post(handlers::tool_network_dns))
         .route("/api/tools/diagnostics", post(handlers::run_diagnostics))
         // Operation logs
         .route("/api/logs/operations", get(handlers::list_operation_logs))
-        .route("/api/logs/operations/summary", get(handlers::get_operation_logs_summary))
+        .route(
+            "/api/logs/operations/summary",
+            get(handlers::get_operation_logs_summary),
+        )
         // Agent context (AI/CLI)
         .route("/api/agent/context", get(handlers::get_agent_context))
         // LacisID
-        .route("/api/lacis-id/candidates", get(handlers::lacis_id_candidates))
+        .route(
+            "/api/lacis-id/candidates",
+            get(handlers::lacis_id_candidates),
+        )
         .route("/api/lacis-id/compute", post(handlers::lacis_id_compute))
-        .route("/api/lacis-id/assign/:device_id", post(handlers::lacis_id_assign))
+        .route(
+            "/api/lacis-id/assign/:device_id",
+            post(handlers::lacis_id_assign),
+        )
         // Nginx management
         .route("/api/nginx/status", get(handlers::get_nginx_status))
         .route("/api/nginx/config", get(handlers::get_nginx_config))

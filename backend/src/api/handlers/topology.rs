@@ -19,8 +19,8 @@ use std::collections::{HashMap, HashSet};
 use crate::api::auth_middleware::require_permission;
 use crate::db::mongo::topology::{LogicDeviceDoc, NodePosition, TopologyStateDoc};
 use crate::error::AppError;
-use crate::lacis_id::{compute_network_device_lacis_id, default_product_code};
 use crate::models::{AuthUser, ConfirmQuery, ConfirmRequired};
+use crate::node_order::logic_device_pseudo_mac;
 use crate::proxy::ProxyState;
 
 // ============================================================================
@@ -222,61 +222,7 @@ fn format_mac(mac: &str) -> String {
     }
 }
 
-/// Check if a string looks like a MAC address (hex digits + separators only).
-/// Matches patterns like "1C-53-F9-B7-89-9B", "1C:53:F9:B7:89:9B", "1C53F9B7899B"
-fn looks_like_mac(s: &str) -> bool {
-    let clean: String = s
-        .chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .collect();
-    // Must be exactly 12 hex digits and the original string only contains hex + separators
-    clean.len() == 12
-        && s.chars()
-            .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '-' || c == '.')
-}
-
-/// Build a human-friendly label for client nodes.
-/// Priority: name (non-MAC) → hostname (non-MAC) → vendor + short MAC → formatted MAC
-fn client_label(
-    name: &Option<String>,
-    hostname: &Option<String>,
-    vendor: &Option<String>,
-    mac: &str,
-) -> String {
-    // Skip name/hostname if they look like a MAC address (Omada often sets name=MAC)
-    if let Some(n) = name {
-        if !n.is_empty() && !looks_like_mac(n) {
-            return n.clone();
-        }
-    }
-    if let Some(h) = hostname {
-        if !h.is_empty() && !looks_like_mac(h) {
-            return h.clone();
-        }
-    }
-    // Vendor + short MAC suffix (last 6 chars) for readability
-    let short_mac = if mac.len() >= 6 {
-        &mac[mac.len() - 6..]
-    } else {
-        mac
-    };
-    let formatted_short = if short_mac.len() == 6 {
-        format!(
-            "{}:{}:{}",
-            &short_mac[0..2],
-            &short_mac[2..4],
-            &short_mac[4..6]
-        )
-    } else {
-        short_mac.to_string()
-    };
-    if let Some(v) = vendor {
-        if !v.is_empty() {
-            return format!("{} ({})", v, formatted_short);
-        }
-    }
-    format_mac(mac)
-}
+// looks_like_mac() and client_label() moved to node_order.rs (SSoT)
 
 // ============================================================================
 // Internal node builder (shared between v1 and v2)
@@ -308,480 +254,90 @@ struct RawEdge {
     label: Option<String>,
 }
 
-/// Build raw nodes and edges from all data sources
+/// Build raw nodes and edges from cg_node_order SSoT.
+///
+/// nodeOrder absolute rules:
+/// 1. nodeOrder = 唯一のSSoT。nodeOrderに存在 = 描画対象
+/// 2. 全ノードは完全に等価
+/// 3. ネットワーク構造: INTERNET → Gateway → Children → ...
+/// 4. Gateway不在 = ネットワーク障害。孤児ノードはGatewayにフォールバック (INTERNET直結禁止)
+/// 5. Controllerは物理トポロジーに含めない
 async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, usize, usize) {
     let mongo = &state.app_state.mongo;
-
-    let omada_controllers = mongo.list_omada_controllers().await.unwrap_or_default();
-    let omada_devices = mongo.get_omada_devices(None, None).await.unwrap_or_default();
-    let omada_clients = mongo.get_omada_clients(None, None, None).await.unwrap_or_default();
-    let omada_wg_peers = mongo.get_omada_wg_peers(None, None).await.unwrap_or_default();
-    let openwrt_routers = mongo.list_openwrt_routers().await.unwrap_or_default();
-    let openwrt_clients = mongo.get_openwrt_clients(None).await.unwrap_or_default();
-    let external_devices = mongo.list_external_devices().await.unwrap_or_default();
-    let external_clients = mongo.get_external_clients(None).await.unwrap_or_default();
-    let logic_devices = mongo.list_logic_devices().await.unwrap_or_default();
+    let entries = mongo.get_all_node_order().await.unwrap_or_default();
 
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut device_count = 0usize;
     let mut client_count = 0usize;
 
-    // --- Omada Controllers ---
-    for ctrl in &omada_controllers {
-        let node_id = format!("omada:{}:ctrl", ctrl.controller_id);
-        // Extract fid from first site if available
-        let fid = ctrl.sites.first().and_then(|s| s.fid.clone());
-        let facility_name = ctrl.sites.first().and_then(|s| s.fid_display_name.clone());
-        nodes.push(RawNode {
-            id: node_id,
-            label: ctrl.display_name.clone(),
-            node_type: "controller".to_string(),
-            mac: None,
-            ip: Some(ctrl.base_url.clone()),
-            source: "omada".to_string(),
-            parent_id: None,
-            lacis_id: None,
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: Some("Controller".to_string()),
-            status: ctrl.status.clone(),
-            metadata: serde_json::json!({
-                "controller_ver": &ctrl.controller_ver,
-                "api_ver": &ctrl.api_ver,
-                "sites": ctrl.sites.len(),
-                "last_synced_at": &ctrl.last_synced_at,
-            }),
-            connection_type: "wired".to_string(),
-            fid,
-            facility_name,
-        });
-    }
+    // Build MAC set for orphan detection
+    let mac_set: HashSet<String> = entries.iter().map(|e| e.mac.clone()).collect();
 
-    // --- Omada Devices ---
-    let mut omada_dev_by_mac = HashMap::new();
-    for dev in &omada_devices {
-        let node_id = format!("omada:{}:dev:{}", dev.controller_id, dev.mac);
-        omada_dev_by_mac.insert(dev.mac.clone(), node_id.clone());
-
-        let candidate = compute_network_device_lacis_id(
-            &dev.product_type,
-            &dev.mac,
-            default_product_code(&dev.network_device_type),
-        );
-
-        // Resolve fid from controller sites
-        let ctrl = omada_controllers.iter().find(|c| c.controller_id == dev.controller_id);
-        let site = ctrl
-            .and_then(|c| c.sites.iter().find(|s| s.site_id == dev.site_id));
-        let fid = site.and_then(|s| s.fid.clone());
-        let facility_name = site.and_then(|s| s.fid_display_name.clone());
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: dev.name.clone(),
-            node_type: dev.device_type.clone(),
-            mac: Some(format_mac(&dev.mac)),
-            ip: dev.ip.clone(),
-            source: "omada".to_string(),
-            parent_id: Some(format!("omada:{}:ctrl", dev.controller_id)),
-            lacis_id: dev.lacis_id.clone(),
-            candidate_lacis_id: Some(candidate),
-            product_type: Some(dev.product_type.clone()),
-            network_device_type: Some(dev.network_device_type.clone()),
-            status: if dev.status == 1 { "online".to_string() } else { "offline".to_string() },
-            metadata: serde_json::json!({
-                "model": &dev.model,
-                "firmware_version": &dev.firmware_version,
-                "site_id": &dev.site_id,
-                "controller_id": &dev.controller_id,
-            }),
-            connection_type: "wired".to_string(),
-            fid,
-            facility_name,
-        });
-
-        edges.push(RawEdge {
-            from: format!("omada:{}:ctrl", dev.controller_id),
-            to: node_id,
-            edge_type: "wired".to_string(),
-            label: None,
-        });
-        device_count += 1;
-    }
-
-    // --- Omada Clients ---
-    for cli in &omada_clients {
-        let node_id = format!("omada:{}:cli:{}", cli.controller_id, cli.mac);
-
-        let parent_id = if cli.wireless {
-            cli.ap_mac.as_ref().and_then(|mac| {
-                let norm_mac = crate::omada::client::normalize_mac(mac);
-                omada_dev_by_mac.get(&norm_mac).cloned()
-            })
-        } else {
-            cli.switch_mac.as_ref().and_then(|mac| {
-                let norm_mac = crate::omada::client::normalize_mac(mac);
-                omada_dev_by_mac.get(&norm_mac).cloned()
-            })
-        };
-
-        let parent_id = parent_id.unwrap_or_else(|| {
-            omada_devices
-                .iter()
-                .find(|d| {
-                    d.controller_id == cli.controller_id
-                        && d.site_id == cli.site_id
-                        && d.device_type == "gateway"
-                })
-                .map(|d| format!("omada:{}:dev:{}", d.controller_id, d.mac))
-                .unwrap_or_else(|| format!("omada:{}:ctrl", cli.controller_id))
-        });
-
-        let edge_type = if cli.wireless { "wireless" } else { "wired" };
-        let conn_type = if cli.wireless { "wireless" } else { "wired" };
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: client_label(&cli.name, &cli.host_name, &cli.vendor, &cli.mac),
-            node_type: "client".to_string(),
-            mac: Some(format_mac(&cli.mac)),
-            ip: cli.ip.clone(),
-            source: "omada".to_string(),
-            parent_id: Some(parent_id.clone()),
-            lacis_id: cli.lacis_id.clone(),
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: None,
-            status: if cli.active { "active".to_string() } else { "inactive".to_string() },
-            metadata: serde_json::json!({
-                "vendor": &cli.vendor,
-                "os_name": &cli.os_name,
-                "ssid": &cli.ssid,
-                "signal_level": &cli.signal_level,
-                "traffic_down": cli.traffic_down,
-                "traffic_up": cli.traffic_up,
-                "uptime": cli.uptime,
-            }),
-            connection_type: conn_type.to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        edges.push(RawEdge {
-            from: parent_id,
-            to: node_id,
-            edge_type: edge_type.to_string(),
-            label: cli.ssid.clone(),
-        });
-        client_count += 1;
-    }
-
-    // --- Omada WG Peers (now wg_peer type instead of client) ---
-    for peer in &omada_wg_peers {
-        let node_id = format!("omada:{}:wg:{}", peer.controller_id, peer.peer_id);
-
-        let parent_id = omada_devices
-            .iter()
-            .find(|d| {
-                d.controller_id == peer.controller_id
-                    && d.site_id == peer.site_id
-                    && d.device_type == "gateway"
-            })
-            .map(|d| format!("omada:{}:dev:{}", d.controller_id, d.mac))
-            .unwrap_or_else(|| format!("omada:{}:ctrl", peer.controller_id));
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: peer.name.clone(),
-            node_type: "wg_peer".to_string(),
-            mac: None,
-            ip: peer.allow_address.first().cloned(),
-            source: "omada".to_string(),
-            parent_id: Some(parent_id.clone()),
-            lacis_id: None,
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: None,
-            status: if peer.status { "active".to_string() } else { "inactive".to_string() },
-            metadata: serde_json::json!({
-                "interface_name": &peer.interface_name,
-                "public_key": &peer.public_key,
-                "allow_address": &peer.allow_address,
-            }),
-            connection_type: "vpn".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        edges.push(RawEdge {
-            from: parent_id,
-            to: node_id,
-            edge_type: "vpn".to_string(),
-            label: Some(peer.interface_name.clone()),
-        });
-        client_count += 1;
-    }
-
-    // --- OpenWrt Routers ---
-    for router in &openwrt_routers {
-        let node_id = format!("openwrt:{}:dev:{}", router.router_id, router.mac);
-
-        let candidate = compute_network_device_lacis_id(
-            &router.product_type,
-            &router.mac,
-            default_product_code(&router.network_device_type),
-        );
-
-        let omada_parent = omada_clients
-            .iter()
-            .find(|c| {
-                crate::omada::client::normalize_mac(&c.mac)
-                    == crate::omada::client::normalize_mac(&router.mac)
-            })
-            .and_then(|c| {
-                if c.wireless {
-                    c.ap_mac.as_ref().and_then(|mac| {
-                        let norm = crate::omada::client::normalize_mac(mac);
-                        omada_dev_by_mac.get(&norm).cloned()
-                    })
-                } else {
-                    c.switch_mac.as_ref().and_then(|mac| {
-                        let norm = crate::omada::client::normalize_mac(mac);
-                        omada_dev_by_mac.get(&norm).cloned()
-                    })
-                }
-            });
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: router.display_name.clone(),
-            node_type: "router".to_string(),
-            mac: Some(format_mac(&router.mac)),
-            ip: Some(router.ip.clone()),
-            source: "openwrt".to_string(),
-            parent_id: omada_parent.clone(),
-            lacis_id: router.lacis_id.clone(),
-            candidate_lacis_id: Some(candidate),
-            product_type: Some(router.product_type.clone()),
-            network_device_type: Some(router.network_device_type.clone()),
-            status: router.status.clone(),
-            metadata: serde_json::json!({
-                "wan_ip": &router.wan_ip,
-                "lan_ip": &router.lan_ip,
-                "ssid_24g": &router.ssid_24g,
-                "ssid_5g": &router.ssid_5g,
-                "firmware_version": &router.firmware_version,
-                "client_count": router.client_count,
-                "uptime_seconds": router.uptime_seconds,
-            }),
-            connection_type: "wired".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        if let Some(parent) = omada_parent {
-            edges.push(RawEdge {
-                from: parent,
-                to: node_id,
-                edge_type: "wired".to_string(),
-                label: Some("NAT".to_string()),
-            });
-        }
-        device_count += 1;
-    }
-
-    // --- OpenWrt Clients ---
-    for cli in &openwrt_clients {
-        let node_id = format!("openwrt:{}:cli:{}", cli.router_id, cli.mac);
-        let parent_id = openwrt_routers
-            .iter()
-            .find(|r| r.router_id == cli.router_id)
-            .map(|r| format!("openwrt:{}:dev:{}", r.router_id, r.mac))
-            .unwrap_or_else(|| format!("openwrt:{}:dev:unknown", cli.router_id));
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: client_label(&cli.hostname, &None, &None, &cli.mac),
-            node_type: "client".to_string(),
-            mac: Some(format_mac(&cli.mac)),
-            ip: Some(cli.ip.clone()),
-            source: "openwrt".to_string(),
-            parent_id: Some(parent_id.clone()),
-            lacis_id: cli.lacis_id.clone(),
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: None,
-            status: if cli.active { "active".to_string() } else { "inactive".to_string() },
-            metadata: serde_json::json!({ "router_id": &cli.router_id }),
-            connection_type: "wired".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        edges.push(RawEdge {
-            from: parent_id,
-            to: node_id,
-            edge_type: "wired".to_string(),
-            label: None,
-        });
-        client_count += 1;
-    }
-
-    // --- External Devices ---
-    for dev in &external_devices {
-        let node_id = format!("external:{}:dev:{}", dev.device_id, dev.mac);
-        let candidate = if !dev.mac.is_empty() {
-            Some(compute_network_device_lacis_id(
-                &dev.product_type,
-                &dev.mac,
-                default_product_code(&dev.network_device_type),
-            ))
-        } else {
-            None
-        };
-
-        let omada_parent = if !dev.mac.is_empty() {
-            omada_clients
-                .iter()
-                .find(|c| {
-                    crate::omada::client::normalize_mac(&c.mac)
-                        == crate::omada::client::normalize_mac(&dev.mac)
-                })
-                .and_then(|c| {
-                    if c.wireless {
-                        c.ap_mac.as_ref().and_then(|mac| {
-                            let norm = crate::omada::client::normalize_mac(mac);
-                            omada_dev_by_mac.get(&norm).cloned()
-                        })
-                    } else {
-                        c.switch_mac.as_ref().and_then(|mac| {
-                            let norm = crate::omada::client::normalize_mac(mac);
-                            omada_dev_by_mac.get(&norm).cloned()
-                        })
-                    }
-                })
-        } else {
-            None
-        };
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: dev.display_name.clone(),
-            node_type: "external".to_string(),
-            mac: Some(format_mac(&dev.mac)),
-            ip: Some(dev.ip.clone()),
-            source: "external".to_string(),
-            parent_id: omada_parent.clone(),
-            lacis_id: dev.lacis_id.clone(),
-            candidate_lacis_id: candidate,
-            product_type: Some(dev.product_type.clone()),
-            network_device_type: Some(dev.network_device_type.clone()),
-            status: dev.status.clone(),
-            metadata: serde_json::json!({
-                "protocol": &dev.protocol,
-                "device_model": &dev.device_model,
-                "client_count": dev.client_count,
-            }),
-            connection_type: "wired".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        if let Some(parent) = omada_parent {
-            edges.push(RawEdge {
-                from: parent,
-                to: node_id,
-                edge_type: "wired".to_string(),
-                label: Some("External".to_string()),
-            });
-        }
-        device_count += 1;
-    }
-
-    // --- External Clients ---
-    for cli in &external_clients {
-        let node_id = format!("external:{}:cli:{}", cli.device_id, cli.mac);
-        let parent_id = external_devices
-            .iter()
-            .find(|d| d.device_id == cli.device_id)
-            .map(|d| format!("external:{}:dev:{}", d.device_id, d.mac))
-            .unwrap_or_else(|| format!("external:{}:dev:unknown", cli.device_id));
-
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: client_label(&cli.hostname, &None, &None, &cli.mac),
-            node_type: "client".to_string(),
-            mac: Some(format_mac(&cli.mac)),
-            ip: cli.ip.clone(),
-            source: "external".to_string(),
-            parent_id: Some(parent_id.clone()),
-            lacis_id: cli.lacis_id.clone(),
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: None,
-            status: if cli.active { "active".to_string() } else { "inactive".to_string() },
-            metadata: serde_json::json!({ "device_id": &cli.device_id }),
-            connection_type: "wired".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        edges.push(RawEdge {
-            from: parent_id,
-            to: node_id,
-            edge_type: "wired".to_string(),
-            label: None,
-        });
-        client_count += 1;
-    }
-
-    // --- Logic Devices ---
-    for dev in &logic_devices {
-        let node_id = dev.id.clone();
-        nodes.push(RawNode {
-            id: node_id.clone(),
-            label: dev.label.clone(),
-            node_type: "logic_device".to_string(),
-            mac: None,
-            ip: dev.ip.clone(),
-            source: "logic".to_string(),
-            parent_id: dev.parent_id.clone(),
-            lacis_id: dev.lacis_id.clone(),
-            candidate_lacis_id: None,
-            product_type: None,
-            network_device_type: Some(dev.device_type.clone()),
-            status: "manual".to_string(),
-            metadata: serde_json::json!({
-                "location": &dev.location,
-                "note": &dev.note,
-                "created_at": &dev.created_at,
-            }),
-            connection_type: "wired".to_string(),
-            fid: None,
-            facility_name: None,
-        });
-
-        if let Some(ref parent) = dev.parent_id {
-            edges.push(RawEdge {
-                from: parent.clone(),
-                to: node_id,
-                edge_type: "logical".to_string(),
-                label: None,
-            });
-        }
-        device_count += 1;
-    }
-
-    // --- Virtual Internet Node (root of the topology tree) ---
-    // Collect current root node IDs (those without a parent) so we can reparent them
-    let internet_id = "__internet__".to_string();
-    let current_root_ids: Vec<String> = nodes
+    // Find gateway MAC for orphan fallback (rule 4)
+    let gateway_mac = entries
         .iter()
-        .filter(|n| n.parent_id.is_none())
-        .map(|n| n.id.clone())
-        .collect();
+        .find(|e| e.node_type == "gateway")
+        .map(|e| e.mac.clone());
 
+    let internet_id = "__internet__".to_string();
+
+    // --- Convert each NodeOrderEntry to RawNode ---
+    for entry in &entries {
+        // Determine parent_id for this node
+        let parent_id = if entry.parent_mac == "INTERNET" {
+            Some(internet_id.clone())
+        } else if mac_set.contains(&entry.parent_mac) {
+            Some(entry.parent_mac.clone())
+        } else {
+            // Orphan: parent_mac references a MAC that doesn't exist in nodeOrder
+            // Rule 4: Fallback to gateway (INTERNET直結禁止)
+            Some(gateway_mac.clone().unwrap_or_else(|| internet_id.clone()))
+        };
+
+        // Count devices vs clients
+        match entry.node_type.as_str() {
+            "client" | "wg_peer" => client_count += 1,
+            "internet" => {}
+            _ => device_count += 1,
+        }
+
+        nodes.push(RawNode {
+            id: entry.mac.clone(),
+            label: entry.label.clone(),
+            node_type: entry.node_type.clone(),
+            mac: Some(format_mac(&entry.mac)),
+            ip: entry.ip.clone(),
+            source: entry.source.clone(),
+            parent_id: parent_id.clone(),
+            lacis_id: entry.lacis_id.clone(),
+            candidate_lacis_id: entry.candidate_lacis_id.clone(),
+            product_type: entry.product_type.clone(),
+            network_device_type: entry.network_device_type.clone(),
+            status: entry.status.clone(),
+            metadata: entry.metadata.clone(),
+            connection_type: entry.connection_type.clone(),
+            fid: entry.fid.clone(),
+            facility_name: entry.facility_name.clone(),
+        });
+
+        // Create edge from parent to this node
+        if let Some(ref pid) = parent_id {
+            let edge_type = match entry.connection_type.as_str() {
+                "wireless" => "wireless",
+                "vpn" => "vpn",
+                _ => "wired",
+            };
+            edges.push(RawEdge {
+                from: pid.clone(),
+                to: entry.mac.clone(),
+                edge_type: edge_type.to_string(),
+                label: entry.ssid.clone(),
+            });
+        }
+    }
+
+    // --- Virtual Internet Node (root) ---
     nodes.push(RawNode {
         id: internet_id.clone(),
         label: "Internet".to_string(),
@@ -800,23 +356,6 @@ async fn build_raw_topology(state: &ProxyState) -> (Vec<RawNode>, Vec<RawEdge>, 
         fid: None,
         facility_name: None,
     });
-
-    // Reparent existing root nodes under Internet
-    for node in nodes.iter_mut() {
-        if node.id != internet_id && node.parent_id.is_none() {
-            node.parent_id = Some(internet_id.clone());
-        }
-    }
-
-    // Add edges from Internet to former root nodes
-    for root_id in &current_root_ids {
-        edges.push(RawEdge {
-            from: internet_id.clone(),
-            to: root_id.clone(),
-            edge_type: "wired".to_string(),
-            label: None,
-        });
-    }
 
     (nodes, edges, device_count, client_count)
 }
@@ -853,7 +392,18 @@ fn h_spacing_for(node_type: &str) -> f64 {
 }
 
 fn is_infra(node_type: &str) -> bool {
-    matches!(node_type, "internet" | "controller" | "gateway" | "router" | "switch" | "ap" | "lpg_server" | "external" | "logic_device")
+    matches!(
+        node_type,
+        "internet"
+            | "controller"
+            | "gateway"
+            | "router"
+            | "switch"
+            | "ap"
+            | "lpg_server"
+            | "external"
+            | "logic_device"
+    )
 }
 
 /// Compute the total vertical extent of a subtree rooted at `node_id`.
@@ -864,7 +414,10 @@ fn subtree_height(
     children_map: &HashMap<String, Vec<String>>,
     pinned_positions: &HashMap<String, NodePosition>,
 ) -> f64 {
-    let self_h = node_type_map.get(node_id).map(|t| node_height(t)).unwrap_or(52.0);
+    let self_h = node_type_map
+        .get(node_id)
+        .map(|t| node_height(t))
+        .unwrap_or(52.0);
 
     // Pinned nodes: their subtree doesn't contribute to automatic layout sizing
     if let Some(pos) = pinned_positions.get(node_id) {
@@ -887,8 +440,15 @@ fn subtree_height(
         total += kid_h;
         if i > 0 {
             // Add gap between siblings
-            let kid_is_infra = node_type_map.get(kid_id).map(|t| is_infra(t)).unwrap_or(false);
-            total += if kid_is_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+            let kid_is_infra = node_type_map
+                .get(kid_id)
+                .map(|t| is_infra(t))
+                .unwrap_or(false);
+            total += if kid_is_infra {
+                LEAF_V_GAP + SUBTREE_V_PAD
+            } else {
+                LEAF_V_GAP
+            };
         }
     }
 
@@ -896,7 +456,10 @@ fn subtree_height(
     total.max(self_h)
 }
 
-fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) -> Vec<NodePosition> {
+fn compute_layout(
+    nodes: &[RawNode],
+    positions: &HashMap<String, NodePosition>,
+) -> Vec<NodePosition> {
     // Build tree structures
     let mut children_ids: HashMap<String, Vec<String>> = HashMap::new();
     let mut children_nodes: HashMap<String, Vec<&RawNode>> = HashMap::new();
@@ -906,7 +469,10 @@ fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) 
     for node in nodes {
         node_type_map.insert(node.id.clone(), node.node_type.clone());
         if let Some(ref pid) = node.parent_id {
-            children_ids.entry(pid.clone()).or_default().push(node.id.clone());
+            children_ids
+                .entry(pid.clone())
+                .or_default()
+                .push(node.id.clone());
             children_nodes.entry(pid.clone()).or_default().push(node);
         } else {
             root_nodes.push(node);
@@ -948,9 +514,14 @@ fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) 
             if stored.pinned {
                 result.push(stored.clone());
                 layout_subtree_v2(
-                    &root.id, stored.x, stored.y,
-                    &children_nodes, &children_ids, &node_type_map,
-                    positions, &mut result,
+                    &root.id,
+                    stored.x,
+                    stored.y,
+                    &children_nodes,
+                    &children_ids,
+                    &node_type_map,
+                    positions,
+                    &mut result,
                 );
                 cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
                 continue;
@@ -967,9 +538,14 @@ fn compute_layout(nodes: &[RawNode], positions: &HashMap<String, NodePosition>) 
         });
 
         layout_subtree_v2(
-            &root.id, x, y,
-            &children_nodes, &children_ids, &node_type_map,
-            positions, &mut result,
+            &root.id,
+            x,
+            y,
+            &children_nodes,
+            &children_ids,
+            &node_type_map,
+            positions,
+            &mut result,
         );
 
         cursor_y += st_h + LEAF_V_GAP + SUBTREE_V_PAD;
@@ -1010,7 +586,11 @@ fn layout_subtree_v2(
         total_h += h;
         if i > 0 {
             let kid_infra = is_infra(&kids[i].node_type);
-            total_h += if kid_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+            total_h += if kid_infra {
+                LEAF_V_GAP + SUBTREE_V_PAD
+            } else {
+                LEAF_V_GAP
+            };
         }
     }
 
@@ -1024,7 +604,11 @@ fn layout_subtree_v2(
         // Add gap before non-first siblings
         if i > 0 {
             let kid_infra = is_infra(&kid.node_type);
-            cursor_y += if kid_infra { LEAF_V_GAP + SUBTREE_V_PAD } else { LEAF_V_GAP };
+            cursor_y += if kid_infra {
+                LEAF_V_GAP + SUBTREE_V_PAD
+            } else {
+                LEAF_V_GAP
+            };
         }
 
         // Pinned: use stored position
@@ -1032,9 +616,14 @@ fn layout_subtree_v2(
             if stored.pinned {
                 result.push(stored.clone());
                 layout_subtree_v2(
-                    &kid.id, stored.x, stored.y,
-                    children_nodes, children_ids, node_type_map,
-                    pinned_positions, result,
+                    &kid.id,
+                    stored.x,
+                    stored.y,
+                    children_nodes,
+                    children_ids,
+                    node_type_map,
+                    pinned_positions,
+                    result,
                 );
                 cursor_y += st_h;
                 continue;
@@ -1051,9 +640,14 @@ fn layout_subtree_v2(
         });
 
         layout_subtree_v2(
-            &kid.id, child_x, y,
-            children_nodes, children_ids, node_type_map,
-            pinned_positions, result,
+            &kid.id,
+            child_x,
+            y,
+            children_nodes,
+            children_ids,
+            node_type_map,
+            pinned_positions,
+            result,
         );
 
         cursor_y += st_h;
@@ -1128,11 +722,15 @@ fn filter_for_route_view(
 // ============================================================================
 
 /// GET /api/topology — v1 backward compatible
-pub async fn get_topology(
-    State(state): State<ProxyState>,
-) -> Result<impl IntoResponse, AppError> {
+pub async fn get_topology(State(state): State<ProxyState>) -> Result<impl IntoResponse, AppError> {
     let (raw_nodes, raw_edges, device_count, client_count) = build_raw_topology(&state).await;
-    let controllers = raw_nodes.iter().filter(|n| n.node_type == "controller").count();
+    let controllers = state
+        .app_state
+        .mongo
+        .list_omada_controllers()
+        .await
+        .unwrap_or_default()
+        .len();
     let routers = raw_nodes.iter().filter(|n| n.node_type == "router").count();
 
     let filtered_node_ids: HashSet<String> = raw_nodes.iter().map(|n| n.id.clone()).collect();
@@ -1190,12 +788,15 @@ pub async fn get_topology_v2(
 
     // Load persistent state
     let saved_positions = mongo.get_all_node_positions().await.unwrap_or_default();
-    let custom_labels = mongo.get_all_custom_labels().await.unwrap_or_default();
-    let topo_state = mongo.get_topology_state().await.unwrap_or(TopologyStateDoc {
-        key: "global".to_string(),
-        collapsed_node_ids: Vec::new(),
-        last_layout_at: String::new(),
-    });
+    // custom_labels no longer needed: nodeOrder.label + label_customized is the SSoT
+    let topo_state = mongo
+        .get_topology_state()
+        .await
+        .unwrap_or(TopologyStateDoc {
+            key: "global".to_string(),
+            collapsed_node_ids: Vec::new(),
+            last_layout_at: String::new(),
+        });
 
     let pos_map: HashMap<String, NodePosition> = saved_positions
         .into_iter()
@@ -1220,7 +821,10 @@ pub async fn get_topology_v2(
     let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
     for n in &raw_nodes {
         if let Some(ref pid) = n.parent_id {
-            children_map.entry(pid.clone()).or_default().push(n.id.clone());
+            children_map
+                .entry(pid.clone())
+                .or_default()
+                .push(n.id.clone());
         }
     }
 
@@ -1228,7 +832,12 @@ pub async fn get_topology_v2(
     let (visible_ids, filtered_edges) = match query.view.as_str() {
         "routes" => {
             // Get proxy routes
-            let routes = state.app_state.mysql.list_routes().await.unwrap_or_default();
+            let routes = state
+                .app_state
+                .mysql
+                .list_routes()
+                .await
+                .unwrap_or_default();
             let proxy_routes: Vec<(String, String)> = routes
                 .iter()
                 .filter(|r| r.active)
@@ -1290,9 +899,14 @@ pub async fn get_topology_v2(
     };
 
     // Build final nodes
-    let controllers = raw_nodes.iter().filter(|n| n.node_type == "controller").count();
+    // Controller count from omada_controllers (not in nodeOrder per rule 6)
+    let controllers = mongo
+        .list_omada_controllers()
+        .await
+        .unwrap_or_default()
+        .len();
     let routers = raw_nodes.iter().filter(|n| n.node_type == "router").count();
-    let logic_device_count = raw_nodes.iter().filter(|n| n.source == "logic").count();
+    let logic_device_count = raw_nodes.iter().filter(|n| n.source == "manual").count();
 
     let nodes: Vec<TopologyNodeV2> = raw_nodes
         .iter()
@@ -1312,15 +926,12 @@ pub async fn get_topology_v2(
             };
             let desc_count = count_descendants(&n.id, &children_map);
 
-            // Apply custom label if exists, otherwise use auto-generated
-            let label = custom_labels
-                .get(&n.id)
-                .cloned()
-                .unwrap_or_else(|| n.label.clone());
+            // Label comes directly from nodeOrder SSoT
+            // (label_customized entries are preserved during ingestion upsert)
 
             TopologyNodeV2 {
                 id: n.id.clone(),
-                label,
+                label: n.label.clone(),
                 node_type: n.node_type.clone(),
                 mac: n.mac.clone(),
                 ip: n.ip.clone(),
@@ -1475,7 +1086,7 @@ pub async fn batch_update_positions(
     })))
 }
 
-/// PUT /api/topology/nodes/:id/label — update node custom label
+/// PUT /api/topology/nodes/:id/label — update node label via nodeOrder SSoT
 pub async fn update_node_label(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1491,10 +1102,18 @@ pub async fn update_node_label(
         ));
     }
 
-    state
-        .app_state
-        .mongo
-        .upsert_custom_label(&node_id, label)
+    let mongo = &state.app_state.mongo;
+
+    // Verify node exists in nodeOrder
+    let _node = mongo
+        .get_node_order_by_mac(&node_id)
+        .await
+        .map_err(|e| AppError::InternalError(e))?
+        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
+
+    // Update label with customized=true (prevents ingestion from overwriting)
+    mongo
+        .update_node_order_label(&node_id, label, true)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
@@ -1505,7 +1124,7 @@ pub async fn update_node_label(
     })))
 }
 
-/// DELETE /api/topology/nodes/:id/label — remove custom label (revert)
+/// DELETE /api/topology/nodes/:id/label — revert to auto-generated label via nodeOrder SSoT
 pub async fn delete_node_label(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1513,10 +1132,18 @@ pub async fn delete_node_label(
 ) -> Result<impl IntoResponse, AppError> {
     require_permission(&user, 50)?;
 
-    state
-        .app_state
-        .mongo
-        .delete_custom_label(&node_id)
+    let mongo = &state.app_state.mongo;
+
+    // Verify node exists
+    let node = mongo
+        .get_node_order_by_mac(&node_id)
+        .await
+        .map_err(|e| AppError::InternalError(e))?
+        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
+
+    // Set label_customized=false so next ingestion cycle will overwrite with auto-generated label
+    mongo
+        .update_node_order_label(&node_id, &node.label, false)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
@@ -1527,7 +1154,7 @@ pub async fn delete_node_label(
     })))
 }
 
-/// PUT /api/topology/nodes/:id/parent — reparent node
+/// PUT /api/topology/nodes/:id/parent — reparent any node via nodeOrder SSoT
 pub async fn update_node_parent(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1536,30 +1163,78 @@ pub async fn update_node_parent(
 ) -> Result<impl IntoResponse, AppError> {
     require_permission(&user, 80)?;
 
-    // Only logic devices can be reparented
     let mongo = &state.app_state.mongo;
-    let device = mongo
-        .get_logic_device(&node_id)
+
+    // Validate: node must exist in nodeOrder
+    let node = mongo
+        .get_node_order_by_mac(&node_id)
         .await
-        .map_err(|e| AppError::InternalError(e))?;
+        .map_err(|e| AppError::InternalError(e))?
+        .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found in nodeOrder", node_id)))?;
 
-    if device.is_none() {
-        return Err(AppError::NotFound(format!(
-            "Only logic devices can be reparented. Node '{}' not found in logic devices.",
-            node_id
-        )));
-    }
+    // Validate: new parent must be "INTERNET" or exist in nodeOrder
+    let new_parent_mac = &req.new_parent_id;
+    let new_depth = if new_parent_mac == "INTERNET" {
+        1
+    } else {
+        let parent = mongo
+            .get_node_order_by_mac(new_parent_mac)
+            .await
+            .map_err(|e| AppError::InternalError(e))?
+            .ok_or_else(|| {
+                AppError::NotFound(format!(
+                    "New parent '{}' not found in nodeOrder",
+                    new_parent_mac
+                ))
+            })?;
 
-    let update = mongodb::bson::doc! { "parent_id": &req.new_parent_id };
+        // Circular reference check: walk up from new_parent to ensure node_id is not an ancestor
+        let entries = mongo.get_all_node_order().await.unwrap_or_default();
+        let mac_to_parent: HashMap<String, String> = entries
+            .iter()
+            .map(|e| (e.mac.clone(), e.parent_mac.clone()))
+            .collect();
+
+        let mut current = new_parent_mac.clone();
+        let mut visited = HashSet::new();
+        while current != "INTERNET" {
+            if current == node_id {
+                return Err(AppError::BadRequest(
+                    "Circular reference detected: new parent is a descendant of this node"
+                        .to_string(),
+                ));
+            }
+            if !visited.insert(current.clone()) {
+                break; // Safety: prevent infinite loop on broken data
+            }
+            current = mac_to_parent
+                .get(&current)
+                .cloned()
+                .unwrap_or_else(|| "INTERNET".to_string());
+        }
+
+        parent.depth + 1
+    };
+
+    // Update nodeOrder
     mongo
-        .update_logic_device(&node_id, update)
+        .update_node_order_parent(&node_id, new_parent_mac, new_depth)
         .await
         .map_err(|e| AppError::InternalError(e))?;
+
+    // Also update logic device if this is one (keep cg_logic_devices in sync)
+    if node.source == "manual" {
+        if let Some(ref source_ref) = node.source_ref_id {
+            let update = mongodb::bson::doc! { "parent_id": new_parent_mac };
+            let _ = mongo.update_logic_device(source_ref, update).await;
+        }
+    }
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "node_id": node_id,
-        "new_parent_id": req.new_parent_id,
+        "new_parent_id": new_parent_mac,
+        "new_depth": new_depth,
     })))
 }
 
@@ -1583,7 +1258,7 @@ pub async fn toggle_node_collapse(
     })))
 }
 
-/// POST /api/topology/logic-devices — create logic device
+/// POST /api/topology/logic-devices — create logic device (also adds to nodeOrder SSoT)
 pub async fn create_logic_device(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1591,32 +1266,96 @@ pub async fn create_logic_device(
 ) -> Result<impl IntoResponse, AppError> {
     require_permission(&user, 80)?;
 
-    let id = format!("logic:{}", uuid::Uuid::new_v4());
+    let uuid = uuid::Uuid::new_v4();
+    let id = format!("logic:{}", uuid);
+    let pseudo_mac = logic_device_pseudo_mac(&uuid.to_string());
     let now = chrono::Utc::now().to_rfc3339();
 
+    // Resolve parent_mac: req.parent_id is now a MAC (or None → gateway fallback)
+    let mongo = &state.app_state.mongo;
+    let parent_mac = if let Some(ref pid) = req.parent_id {
+        pid.clone()
+    } else {
+        // Default: find gateway or fallback to INTERNET
+        let entries = mongo.get_all_node_order().await.unwrap_or_default();
+        entries
+            .iter()
+            .find(|e| e.node_type == "gateway")
+            .map(|e| e.mac.clone())
+            .unwrap_or_else(|| "INTERNET".to_string())
+    };
+
+    let parent_depth = if parent_mac == "INTERNET" {
+        0
+    } else {
+        mongo
+            .get_node_order_by_mac(&parent_mac)
+            .await
+            .ok()
+            .flatten()
+            .map(|e| e.depth)
+            .unwrap_or(1)
+    };
+
+    // Create in cg_logic_devices (metadata store)
     let doc = LogicDeviceDoc {
         id: id.clone(),
-        label: req.label,
-        device_type: req.device_type,
-        parent_id: req.parent_id,
-        ip: req.ip,
-        location: req.location,
-        note: req.note,
+        label: req.label.clone(),
+        device_type: req.device_type.clone(),
+        parent_id: Some(parent_mac.clone()),
+        ip: req.ip.clone(),
+        location: req.location.clone(),
+        note: req.note.clone(),
         lacis_id: None,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    mongo
+        .create_logic_device(&doc)
+        .await
+        .map_err(|e| AppError::InternalError(e))?;
+
+    // Create in nodeOrder SSoT
+    use crate::db::mongo::topology::NodeOrderEntry;
+    let entry = NodeOrderEntry {
+        mac: pseudo_mac.clone(),
+        parent_mac,
+        depth: parent_depth + 1,
+        order: 0,
+        label: req.label,
+        node_type: "logic_device".to_string(),
+        ip: req.ip,
+        hostname: None,
+        source: "manual".to_string(),
+        source_ref_id: Some(id.clone()),
+        status: "manual".to_string(),
+        state_type: "manual".to_string(),
+        connection_type: "wired".to_string(),
+        lacis_id: None,
+        candidate_lacis_id: None,
+        product_type: None,
+        network_device_type: Some(req.device_type),
+        fid: None,
+        facility_name: None,
+        metadata: serde_json::json!({
+            "location": &req.location,
+            "note": &req.note,
+            "logic_device_id": &id,
+        }),
+        label_customized: false,
+        ssid: None,
         created_at: now.clone(),
         updated_at: now,
     };
-
-    state
-        .app_state
-        .mongo
-        .create_logic_device(&doc)
+    mongo
+        .upsert_node_order(&entry)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "id": id,
+        "mac": pseudo_mac,
         "message": "Logic device created",
     })))
 }
@@ -1659,7 +1398,10 @@ pub async fn update_logic_device(
         .map_err(|e| AppError::InternalError(e))?;
 
     if !modified {
-        return Err(AppError::NotFound(format!("Logic device '{}' not found", id)));
+        return Err(AppError::NotFound(format!(
+            "Logic device '{}' not found",
+            id
+        )));
     }
 
     Ok(Json(serde_json::json!({
@@ -1670,6 +1412,7 @@ pub async fn update_logic_device(
 }
 
 /// DELETE /api/topology/logic-devices/:id — delete logic device (dangerous)
+/// Also removes from nodeOrder SSoT
 pub async fn delete_logic_device(
     State(state): State<ProxyState>,
     Extension(user): Extension<AuthUser>,
@@ -1687,15 +1430,30 @@ pub async fn delete_logic_device(
         })));
     }
 
-    let deleted = state
-        .app_state
-        .mongo
+    let mongo = &state.app_state.mongo;
+
+    // Find the pseudo-MAC for this logic device in nodeOrder
+    let entries = mongo.get_all_node_order().await.unwrap_or_default();
+    let node_entry = entries
+        .iter()
+        .find(|e| e.source_ref_id.as_deref() == Some(&id));
+
+    // Delete from nodeOrder if found
+    if let Some(entry) = node_entry {
+        let _ = mongo.delete_node_order(&entry.mac).await;
+    }
+
+    // Delete from cg_logic_devices
+    let deleted = mongo
         .delete_logic_device(&id)
         .await
         .map_err(|e| AppError::InternalError(e))?;
 
     if !deleted {
-        return Err(AppError::NotFound(format!("Logic device '{}' not found", id)));
+        return Err(AppError::NotFound(format!(
+            "Logic device '{}' not found",
+            id
+        )));
     }
 
     Ok(Json(serde_json::json!({

@@ -3,11 +3,7 @@
 //! POST /api/tools/diagnostics
 //! Runs diagnostic checks across all 10 subsystem categories.
 
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
@@ -65,8 +61,16 @@ pub struct DiagnosticSummary {
 // ============================================================================
 
 const ALL_CATEGORIES: &[&str] = &[
-    "database", "nginx", "proxy_routes", "ddns", "omada",
-    "openwrt", "external", "aranea", "geoip", "system",
+    "database",
+    "nginx",
+    "proxy_routes",
+    "ddns",
+    "omada",
+    "openwrt",
+    "external",
+    "aranea",
+    "geoip",
+    "system",
 ];
 
 // ============================================================================
@@ -104,7 +108,11 @@ pub async fn run_diagnostics(
             .iter()
             .filter_map(|c| {
                 let s = c.as_str();
-                if ALL_CATEGORIES.contains(&s) { Some(s) } else { None }
+                if ALL_CATEGORIES.contains(&s) {
+                    Some(s)
+                } else {
+                    None
+                }
             })
             .collect(),
         None => ALL_CATEGORIES.to_vec(),
@@ -115,16 +123,16 @@ pub async fn run_diagnostics(
     // Run each selected category
     for cat in &selected {
         match *cat {
-            "database"     => checks.extend(check_database(&state).await),
-            "nginx"        => checks.extend(check_nginx().await),
+            "database" => checks.extend(check_database(&state).await),
+            "nginx" => checks.extend(check_nginx().await),
             "proxy_routes" => checks.extend(check_proxy_routes(&state, include_device_tests).await),
-            "ddns"         => checks.extend(check_ddns(&state, include_device_tests).await),
-            "omada"        => checks.extend(check_omada(&state, include_device_tests).await),
-            "openwrt"      => checks.extend(check_openwrt(&state, include_device_tests).await),
-            "external"     => checks.extend(check_external(&state, include_device_tests).await),
-            "aranea"       => checks.extend(check_aranea(&state).await),
-            "geoip"        => checks.extend(check_geoip(&state).await),
-            "system"       => checks.extend(check_system(&state).await),
+            "ddns" => checks.extend(check_ddns(&state, include_device_tests).await),
+            "omada" => checks.extend(check_omada(&state, include_device_tests).await),
+            "openwrt" => checks.extend(check_openwrt(&state, include_device_tests).await),
+            "external" => checks.extend(check_external(&state, include_device_tests).await),
+            "aranea" => checks.extend(check_aranea(&state).await),
+            "geoip" => checks.extend(check_geoip(&state).await),
+            "system" => checks.extend(check_system(&state).await),
             _ => {}
         }
     }
@@ -179,7 +187,11 @@ async fn check_database(state: &ProxyState) -> Vec<DiagnosticCheck> {
     {
         let start = Instant::now();
         let (status, message, details) = match state.app_state.mysql.pool().acquire().await {
-            Ok(_conn) => ("ok", "MySQL connection acquired successfully".to_string(), None),
+            Ok(_conn) => (
+                "ok",
+                "MySQL connection acquired successfully".to_string(),
+                None,
+            ),
             Err(e) => ("error", format!("MySQL connection failed: {}", e), None),
         };
         checks.push(DiagnosticCheck {
@@ -233,7 +245,12 @@ async fn check_nginx() -> Vec<DiagnosticCheck> {
             category: "nginx".into(),
             name: "nginx_running".into(),
             status: if running { "ok" } else { "error" }.into(),
-            message: if running { "nginx is running" } else { "nginx is NOT running" }.into(),
+            message: if running {
+                "nginx is running"
+            } else {
+                "nginx is NOT running"
+            }
+            .into(),
             details: None,
             duration_ms: start.elapsed().as_millis() as u64,
         });
@@ -264,7 +281,10 @@ async fn check_nginx() -> Vec<DiagnosticCheck> {
 // Category 3: proxy_routes
 // ============================================================================
 
-async fn check_proxy_routes(state: &ProxyState, include_device_tests: bool) -> Vec<DiagnosticCheck> {
+async fn check_proxy_routes(
+    state: &ProxyState,
+    include_device_tests: bool,
+) -> Vec<DiagnosticCheck> {
     let mut checks = Vec::new();
 
     // Count active routes
@@ -359,17 +379,22 @@ async fn check_ddns(state: &ProxyState, include_device_tests: bool) -> Vec<Diagn
                 if include_device_tests {
                     for config in &configs {
                         let dns_start = Instant::now();
-                        let (status, msg) = match tokio::net::lookup_host(format!("{}:0", config.hostname)).await {
-                            Ok(addrs) => {
-                                let ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
-                                if ips.is_empty() {
-                                    ("warning", "Resolved but no addresses returned".to_string())
-                                } else {
-                                    ("ok", format!("Resolved to: {}", ips.join(", ")))
+                        let (status, msg) =
+                            match tokio::net::lookup_host(format!("{}:0", config.hostname)).await {
+                                Ok(addrs) => {
+                                    let ips: Vec<String> =
+                                        addrs.map(|a| a.ip().to_string()).collect();
+                                    if ips.is_empty() {
+                                        (
+                                            "warning",
+                                            "Resolved but no addresses returned".to_string(),
+                                        )
+                                    } else {
+                                        ("ok", format!("Resolved to: {}", ips.join(", ")))
+                                    }
                                 }
-                            }
-                            Err(e) => ("error", format!("DNS resolution failed: {}", e)),
-                        };
+                                Err(e) => ("error", format!("DNS resolution failed: {}", e)),
+                            };
                         checks.push(DiagnosticCheck {
                             category: "ddns".into(),
                             name: format!("ddns_resolve_{}", config.id),
@@ -459,9 +484,22 @@ async fn check_omada(state: &ProxyState, include_device_tests: bool) -> Vec<Diag
             match state.app_state.mongo.get_omada_controller(ctrl_id).await {
                 Ok(Some(ctrl)) => {
                     let (status, msg) = match &*ctrl.status {
-                        "connected" => ("ok", format!("Controller '{}' connected", ctrl.display_name)),
-                        "error" => ("error", format!("Controller '{}' has error: {}", ctrl.display_name, ctrl.last_error.as_deref().unwrap_or("unknown"))),
-                        s => ("warning", format!("Controller '{}' status: {}", ctrl.display_name, s)),
+                        "connected" => (
+                            "ok",
+                            format!("Controller '{}' connected", ctrl.display_name),
+                        ),
+                        "error" => (
+                            "error",
+                            format!(
+                                "Controller '{}' has error: {}",
+                                ctrl.display_name,
+                                ctrl.last_error.as_deref().unwrap_or("unknown")
+                            ),
+                        ),
+                        s => (
+                            "warning",
+                            format!("Controller '{}' status: {}", ctrl.display_name, s),
+                        ),
                     };
                     checks.push(DiagnosticCheck {
                         category: "omada".into(),
@@ -531,9 +569,21 @@ async fn check_openwrt(state: &ProxyState, include_device_tests: bool) -> Vec<Di
                     for router in &routers {
                         let rt_start = Instant::now();
                         let (status, msg) = match router.status.as_str() {
-                            "connected" => ("ok", format!("Router '{}' connected", router.display_name)),
-                            "error" => ("error", format!("Router '{}' error: {}", router.display_name, router.last_error.as_deref().unwrap_or("unknown"))),
-                            s => ("warning", format!("Router '{}' status: {}", router.display_name, s)),
+                            "connected" => {
+                                ("ok", format!("Router '{}' connected", router.display_name))
+                            }
+                            "error" => (
+                                "error",
+                                format!(
+                                    "Router '{}' error: {}",
+                                    router.display_name,
+                                    router.last_error.as_deref().unwrap_or("unknown")
+                                ),
+                            ),
+                            s => (
+                                "warning",
+                                format!("Router '{}' status: {}", router.display_name, s),
+                            ),
                         };
                         checks.push(DiagnosticCheck {
                             category: "openwrt".into(),
@@ -593,9 +643,21 @@ async fn check_external(state: &ProxyState, include_device_tests: bool) -> Vec<D
                     for device in &devices {
                         let dev_start = Instant::now();
                         let (status, msg) = match device.status.as_str() {
-                            "connected" => ("ok", format!("Device '{}' connected", device.display_name)),
-                            "error" => ("error", format!("Device '{}' error: {}", device.display_name, device.last_error.as_deref().unwrap_or("unknown"))),
-                            s => ("warning", format!("Device '{}' status: {}", device.display_name, s)),
+                            "connected" => {
+                                ("ok", format!("Device '{}' connected", device.display_name))
+                            }
+                            "error" => (
+                                "error",
+                                format!(
+                                    "Device '{}' error: {}",
+                                    device.display_name,
+                                    device.last_error.as_deref().unwrap_or("unknown")
+                                ),
+                            ),
+                            s => (
+                                "warning",
+                                format!("Device '{}' status: {}", device.display_name, s),
+                            ),
                         };
                         checks.push(DiagnosticCheck {
                             category: "external".into(),
@@ -640,15 +702,25 @@ async fn check_aranea(state: &ProxyState) -> Vec<DiagnosticCheck> {
     let lacis_id_ok = !config.tenant_lacis_id.is_empty();
 
     let (status, msg) = if tid_ok && lacis_id_ok {
-        ("ok", format!(
-            "Aranea config valid (tid={}, tenant_lacis_id={})",
-            config.tid, config.tenant_lacis_id
-        ))
+        (
+            "ok",
+            format!(
+                "Aranea config valid (tid={}, tenant_lacis_id={})",
+                config.tid, config.tenant_lacis_id
+            ),
+        )
     } else {
         let mut missing = Vec::new();
-        if !tid_ok { missing.push("tid"); }
-        if !lacis_id_ok { missing.push("tenant_lacis_id"); }
-        ("warning", format!("Aranea config incomplete, missing: {}", missing.join(", ")))
+        if !tid_ok {
+            missing.push("tid");
+        }
+        if !lacis_id_ok {
+            missing.push("tenant_lacis_id");
+        }
+        (
+            "warning",
+            format!("Aranea config incomplete, missing: {}", missing.join(", ")),
+        )
     };
 
     checks.push(DiagnosticCheck {

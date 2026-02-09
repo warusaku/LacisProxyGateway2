@@ -111,10 +111,7 @@ impl MercuryClient {
 
     /// Get Mercury device status
     pub async fn get_status(&self) -> Result<MercuryStatus, String> {
-        let stok = self
-            .stok
-            .as_ref()
-            .ok_or("Not logged in")?;
+        let stok = self.stok.as_ref().ok_or("Not logged in")?;
 
         let body = serde_json::json!({
             "method": "get",
@@ -135,9 +132,7 @@ impl MercuryClient {
             .await
             .map_err(|e| format!("Mercury status parse failed: {}", e))?;
 
-        let sysinfo = result
-            .get("system")
-            .and_then(|s| s.get("sysinfo"));
+        let sysinfo = result.get("system").and_then(|s| s.get("sysinfo"));
 
         Ok(MercuryStatus {
             model: sysinfo
@@ -155,10 +150,7 @@ impl MercuryClient {
 
     /// Get connected clients
     pub async fn get_clients(&self) -> Result<Vec<MercuryClientInfo>, String> {
-        let stok = self
-            .stok
-            .as_ref()
-            .ok_or("Not logged in")?;
+        let stok = self.stok.as_ref().ok_or("Not logged in")?;
 
         let body = serde_json::json!({
             "method": "get",
@@ -181,10 +173,7 @@ impl MercuryClient {
 
         let mut clients = Vec::new();
 
-        if let Some(hosts) = result
-            .get("hosts_info")
-            .and_then(|h| h.get("host_info"))
-        {
+        if let Some(hosts) = result.get("hosts_info").and_then(|h| h.get("host_info")) {
             if let Some(arr) = hosts.as_array() {
                 for host in arr {
                     let mac = host

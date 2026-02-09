@@ -117,11 +117,7 @@ impl SshRouterClient {
     /// Test SSH connection
     pub async fn test_connection(&self) -> Result<bool, String> {
         // Simple echo test with timeout
-        let result = tokio::time::timeout(
-            Duration::from_secs(10),
-            self.ssh_exec("echo ok"),
-        )
-        .await;
+        let result = tokio::time::timeout(Duration::from_secs(10), self.ssh_exec("echo ok")).await;
 
         match result {
             Ok(Ok(output)) => Ok(output.contains("ok")),
@@ -202,7 +198,9 @@ impl SshRouterClient {
 
     async fn get_clients_openwrt(&self) -> Result<Vec<RouterClientEntry>, String> {
         // OpenWrt DHCP leases format: timestamp mac ip hostname *
-        let output = self.ssh_exec("cat /tmp/dhcp.leases 2>/dev/null || echo ''").await?;
+        let output = self
+            .ssh_exec("cat /tmp/dhcp.leases 2>/dev/null || echo ''")
+            .await?;
         let mut clients = Vec::new();
 
         for line in output.lines() {

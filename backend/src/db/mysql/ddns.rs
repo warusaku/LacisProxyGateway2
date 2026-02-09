@@ -24,7 +24,8 @@ impl MySqlDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let configs: Result<Vec<DdnsConfig>, _> = rows.into_iter().map(DdnsConfig::try_from).collect();
+        let configs: Result<Vec<DdnsConfig>, _> =
+            rows.into_iter().map(DdnsConfig::try_from).collect();
         configs.map_err(|e| AppError::InternalError(e))
     }
 
@@ -44,7 +45,8 @@ impl MySqlDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let configs: Result<Vec<DdnsConfig>, _> = rows.into_iter().map(DdnsConfig::try_from).collect();
+        let configs: Result<Vec<DdnsConfig>, _> =
+            rows.into_iter().map(DdnsConfig::try_from).collect();
         configs.map_err(|e| AppError::InternalError(e))
     }
 
@@ -65,7 +67,9 @@ impl MySqlDb {
         .await?;
 
         match row {
-            Some(r) => Ok(Some(DdnsConfig::try_from(r).map_err(|e| AppError::InternalError(e))?)),
+            Some(r) => Ok(Some(
+                DdnsConfig::try_from(r).map_err(|e| AppError::InternalError(e))?,
+            )),
             None => Ok(None),
         }
     }

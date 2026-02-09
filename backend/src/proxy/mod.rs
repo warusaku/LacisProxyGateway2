@@ -62,13 +62,11 @@ impl ProxyState {
         let ddns_updater = Arc::new(DdnsUpdater::new(app_state.clone(), notifier.clone()));
 
         // Initialize GeoIP reader (optional, non-fatal on failure)
-        let geoip = geoip_db_path.and_then(|path| {
-            match GeoIpReader::open(path) {
-                Ok(reader) => Some(Arc::new(reader)),
-                Err(e) => {
-                    tracing::warn!("GeoIP database not available: {} (path: {})", e, path);
-                    None
-                }
+        let geoip = geoip_db_path.and_then(|path| match GeoIpReader::open(path) {
+            Ok(reader) => Some(Arc::new(reader)),
+            Err(e) => {
+                tracing::warn!("GeoIP database not available: {} (path: {})", e, path);
+                None
             }
         });
 
