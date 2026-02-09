@@ -1,5 +1,24 @@
 'use client';
 
+/**
+ * DeviceNode Component
+ *
+ * ReactFlow カスタムノード — ネットワークデバイス表示
+ * SSOT: mobes2.0 DeviceNode.tsx を LPG2 ダークテーマ向けに移植
+ *
+ * mobes2.0 構造準拠:
+ *   - Handle target (top) + Handle source (bottom)
+ *   - ステータス色でアイコン円形背景
+ *   - タイプ別背景色（LPG2 dark theme 向けに調整）
+ *   - インラインラベル編集（ダブルクリック→Enter/Escape）
+ *   - Collapse バッジ
+ *
+ * Handle 方向ルール:
+ *   - target (top): 親からのエッジを受信
+ *   - source (bottom): 子へのエッジを送出
+ *   → 親→子の一方向フローを強制（InternetNode は source のみ）
+ */
+
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
 import {
@@ -9,22 +28,23 @@ import {
 import type { DeviceNodeData, NodeType } from '../types';
 import { NODE_COLORS, STATUS_COLORS } from '../constants';
 
+// mobes2.0 準拠: デバイスタイプ→アイコンマッピング
 const ICON_MAP: Record<string, LucideIcon> = {
   Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
 };
 
 const ICON_FOR_TYPE: Record<NodeType, string> = {
-  internet: 'Cloud',
-  controller: 'Globe',
-  gateway: 'Globe',
-  router: 'Globe',
-  switch: 'GitBranch',
-  ap: 'Wifi',
-  client: 'Monitor',
-  wg_peer: 'Shield',
+  internet:     'Cloud',
+  controller:   'Globe',
+  gateway:      'Globe',
+  router:       'Globe',
+  switch:       'GitBranch',
+  ap:           'Wifi',
+  client:       'Monitor',
+  wg_peer:      'Shield',
   logic_device: 'Box',
-  external: 'HardDrive',
-  lpg_server: 'Server',
+  external:     'HardDrive',
+  lpg_server:   'Server',
 };
 
 const LABEL_MAX_LENGTH = 50;
@@ -38,7 +58,6 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
   const statusColor = STATUS_COLORS[node.status] || STATUS_COLORS.unknown;
 
   const isOffline = node.status === 'offline' || node.status === 'inactive';
-  const isClient = nodeType === 'client' || nodeType === 'wg_peer';
 
   // Inline label editing state
   const [editing, setEditing] = useState(false);
@@ -53,7 +72,6 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    // Don't allow editing Internet virtual node
     if (node.id === '__internet__') return;
     setEditValue(node.label);
     setEditing(true);
@@ -62,7 +80,6 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
   const commitEdit = useCallback(() => {
     const trimmed = editValue.trim();
     if (!trimmed || trimmed.length > LABEL_MAX_LENGTH) {
-      // Validation fail — shake animation
       setShaking(true);
       setTimeout(() => setShaking(false), 400);
       return;
@@ -86,7 +103,6 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
     }
   }, [commitEdit, cancelEdit]);
 
-  // Auto-focus input when editing starts
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
@@ -94,7 +110,8 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
     }
   }, [editing]);
 
-  // Node width: infrastructure nodes wider, clients narrower
+  // mobes2.0 準拠: ノード幅（インフラ=200, クライアント=160）
+  const isClient = nodeType === 'client' || nodeType === 'wg_peer';
   const nodeWidth = isClient ? 160 : 200;
 
   return (
@@ -103,18 +120,25 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
       style={{
         width: nodeWidth,
         background: `linear-gradient(135deg, ${colors.bg}18, ${colors.bg}30)`,
-        border: `1.5px solid ${selected ? '#3B82F6' : isOffline ? '#4B5563' : colors.border}`,
+        border: `${selected ? 2.5 : 1.5}px solid ${selected ? '#3B82F6' : isOffline ? '#4B5563' : colors.border}`,
         borderRadius: 8,
         padding: '10px 12px',
         backdropFilter: 'blur(12px)',
         position: 'relative',
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+        boxShadow: selected ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 1px 4px rgba(0, 0, 0, 0.3)',
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: colors.border, width: 6, height: 6 }} />
+      {/* mobes2.0 準拠: Handle target (top) — 親からのエッジ受信 */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: statusColor, width: 8, height: 8 }}
+      />
 
-      {/* Header row: icon circle + label + status indicator */}
+      {/* Header: icon circle + label + type */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {/* Icon with status-colored circular background */}
+        {/* mobes2.0 準拠: ステータス色の円形背景 */}
         <div
           style={{
             width: 28,
@@ -173,11 +197,7 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
               {node.label}
             </div>
           )}
-          <div style={{
-            fontSize: 10,
-            color: '#6B7280',
-            lineHeight: '14px',
-          }}>
+          <div style={{ fontSize: 10, color: '#6B7280', lineHeight: '14px' }}>
             {node.node_type}
           </div>
         </div>
@@ -198,17 +218,18 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
         </div>
       )}
 
-      {/* MAC address (formatted) */}
+      {/* MAC address (infrastructure nodes only) */}
       {node.mac && !isClient && (
-        <div style={{
-          fontSize: 9.5,
-          color: '#6B7280',
-          fontFamily: 'monospace',
-          marginTop: 2,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
+        <div
+          style={{
+            fontSize: 9.5,
+            color: '#6B7280',
+            fontFamily: 'monospace',
+            marginTop: 2,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
           title={node.mac}
         >
           {node.mac}
@@ -224,12 +245,12 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
             </span>
           )}
           {node.connection_type === 'vpn' && (
-            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(16,185,129,0.15)', color: '#10B981' }}>
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(156,39,176,0.15)', color: '#BA68C8' }}>
               VPN
             </span>
           )}
           {node.connection_type === 'wireless' && (
-            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(6,182,212,0.15)', color: '#06B6D4' }}>
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(76,175,80,0.15)', color: '#66BB6A' }}>
               WiFi
             </span>
           )}
@@ -256,7 +277,12 @@ function DeviceNodeComponent({ data }: { data: DeviceNodeData }) {
         </button>
       )}
 
-      <Handle type="source" position={Position.Bottom} style={{ background: colors.border, width: 6, height: 6 }} />
+      {/* mobes2.0 準拠: Handle source (bottom) — 子へのエッジ送出 */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: statusColor, width: 8, height: 8 }}
+      />
     </div>
   );
 }

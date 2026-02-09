@@ -147,9 +147,10 @@ export type ViewMode = 'mindmap' | 'outline' | 'split';
 export type TopologyViewFilter = 'full' | 'routes' | 'site';
 
 // ============================================================================
-// React Flow node/edge data types
+// React Flow node/edge data types (mobes2.0 types.ts 準拠)
 // ============================================================================
 
+// DeviceNode data — mobes2.0 DeviceNodeData を LPG2 向けに適合
 export interface DeviceNodeData {
   node: TopologyNodeV2;
   selected: boolean;
@@ -157,7 +158,16 @@ export interface DeviceNodeData {
   onLabelEdit: (nodeId: string, newLabel: string) => void;
 }
 
-// mobes2.0準拠: カスタムエッジデータ (SSOT: mobes2.0 types.ts TopologyEdgeData)
+// InternetNode data — mobes2.0 InternetNodeData 準拠
+// InternetNode は source handle (bottom) のみを持ち、target handle を持たない
+// → エッジの逆進（子→Internet）を構造的に禁止する
+export interface InternetNodeData {
+  label: string;
+  ip?: string;
+}
+
+// カスタムエッジデータ — mobes2.0 TopologyEdgeData 準拠
+// TopologyEdge コンポーネントが data.connectionType を読んでスタイルを決定
 export interface TopologyEdgeData {
   connectionType: EdgeType;
   label?: string;
@@ -166,6 +176,7 @@ export interface TopologyEdgeData {
 }
 
 export type DeviceFlowNode = Node<DeviceNodeData>;
+export type InternetFlowNode = Node<InternetNodeData>;
 export type TopologyFlowEdge = Edge;
 
 // ============================================================================
