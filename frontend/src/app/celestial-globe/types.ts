@@ -157,6 +157,14 @@ export interface DeviceNodeData {
   onLabelEdit: (nodeId: string, newLabel: string) => void;
 }
 
+// mobes2.0準拠: カスタムエッジデータ (SSOT: mobes2.0 types.ts TopologyEdgeData)
+export interface TopologyEdgeData {
+  connectionType: EdgeType;
+  label?: string;
+  bandwidth?: string;
+  animated?: boolean;
+}
+
 export type DeviceFlowNode = Node<DeviceNodeData>;
 export type TopologyFlowEdge = Edge;
 

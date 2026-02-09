@@ -31,7 +31,7 @@
 }
 
 /* ============================================================================
-   Edge animations
+   Edge animations (mobes2.0 準拠: className ベースのアニメーション)
    ============================================================================ */
 
 @keyframes cg-edge-flow {
@@ -39,12 +39,9 @@
   100% { stroke-dashoffset: 0; }
 }
 
-@keyframes cg-edge-flow-slow {
-  0% { stroke-dashoffset: 24; }
-  100% { stroke-dashoffset: 0; }
-}
-
-.react-flow__edge-path[data-animated="true"] {
+/* mobes2.0 TopologyEdge.tsx: className={animated ? 'react-flow__edge-path--animated' : undefined}
+   BaseEdge の path 要素にこのクラスが付与されてアニメーションする */
+.react-flow__edge-path--animated {
   animation: cg-edge-flow 1.4s linear infinite;
 }
 

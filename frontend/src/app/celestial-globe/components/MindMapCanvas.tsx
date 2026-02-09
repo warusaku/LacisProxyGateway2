@@ -1,6 +1,18 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+/**
+ * MindMapCanvas Component
+ *
+ * ReactFlow ベースのトポロジーキャンバス
+ * mobes2.0 TopologyCanvas.tsx 準拠:
+ *   - nodeTypes = { device: DeviceNode }
+ *   - edgeTypes = { topology: TopologyEdge }  ← CRITICAL: カスタムエッジ登録
+ *   - defaultEdgeOptions = { type: 'topology' }
+ *   - Background: variant=Dots, gap=20, size=1
+ *   - MiniMap: nodeStrokeWidth=2, zoomable, pannable
+ */
+
+import { useCallback, useMemo } from 'react';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -10,6 +22,7 @@ import ReactFlow, {
   type Node,
   type Edge,
   type NodeTypes,
+  type EdgeTypes,
   type NodeDragHandler,
   type NodeMouseHandler,
   BackgroundVariant,
@@ -17,14 +30,25 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 import { DeviceNode } from './DeviceNode';
+import { TopologyEdge } from './TopologyEdge';
 import { Toolbar } from './Toolbar';
 import { Legend } from './Legend';
 import { useTopologyStore } from '../stores/useTopologyStore';
-import { EDGE_STYLES } from '../constants';
-import type { TopologyNodeV2, TopologyEdgeV2, DeviceNodeData, EdgeType } from '../types';
+import type { TopologyNodeV2, TopologyEdgeV2, DeviceNodeData, EdgeType, TopologyEdgeData } from '../types';
 
+// mobes2.0 準拠: nodeTypes + edgeTypes 登録
 const nodeTypes: NodeTypes = {
   device: DeviceNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  topology: TopologyEdge,
+};
+
+// mobes2.0 準拠: defaultEdgeOptions — 全エッジに type='topology' を適用
+const defaultEdgeOptions = {
+  type: 'topology',
+  animated: false,
 };
 
 function toFlowNodes(
@@ -47,25 +71,19 @@ function toFlowNodes(
   }));
 }
 
+// mobes2.0 準拠: エッジに data.connectionType を付与（TopologyEdge コンポーネントが参照）
 function toFlowEdges(topoEdges: TopologyEdgeV2[]): Edge[] {
-  return topoEdges.map((e, i) => {
-    const style = EDGE_STYLES[e.edge_type as EdgeType] || EDGE_STYLES.wired;
-    return {
-      id: `edge-${i}-${e.from}-${e.to}`,
-      source: e.from,
-      target: e.to,
-      type: 'smoothstep',
-      label: e.label || undefined,
-      style: {
-        stroke: style.color,
-        strokeWidth: style.strokeWidth,
-        strokeDasharray: style.strokeDasharray,
-      },
-      animated: style.animated,
-      labelStyle: { fill: '#6B7280', fontSize: 9 },
-      labelBgStyle: { fill: '#0a0a0a', fillOpacity: 0.8 },
-    };
-  });
+  return topoEdges.map((e, i) => ({
+    id: `edge-${i}-${e.from}-${e.to}`,
+    source: e.from,
+    target: e.to,
+    type: 'topology',
+    data: {
+      connectionType: e.edge_type as EdgeType,
+      label: e.label,
+      animated: e.edge_type === 'wireless' || e.edge_type === 'route',
+    } satisfies TopologyEdgeData,
+  }));
 }
 
 interface MindMapCanvasInnerProps {
@@ -131,13 +149,17 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        defaultEdgeOptions={defaultEdgeOptions}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#1a1a1a" gap={40} variant={BackgroundVariant.Dots} />
+        {/* mobes2.0 準拠: gap=20, size=1 (ズーム時にグリッド粒度が変化) */}
+        <Background color="#333" gap={20} size={1} variant={BackgroundVariant.Dots} />
+        {/* mobes2.0 準拠: nodeStrokeWidth=2, zoomable, pannable */}
         <MiniMap
           nodeColor={(n) => {
             const data = n.data as DeviceNodeData | undefined;
@@ -148,6 +170,9 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
             if (status === 'warning') return '#F59E0B';
             return '#9CA3AF';
           }}
+          nodeStrokeWidth={2}
+          zoomable
+          pannable
           maskColor="rgba(0,0,0,0.7)"
           style={{ background: 'rgba(10,10,10,0.9)', border: '1px solid rgba(51,51,51,0.5)', borderRadius: 8 }}
         />

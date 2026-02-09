@@ -62,17 +62,19 @@ export const NODE_ICONS: Record<NodeType, string> = {
 // Edge styles by type
 // ============================================================================
 
+// mobes2.0 準拠のエッジスタイル (SSOT: mobes2.0 TopologyEdge.tsx EDGE_STYLES)
+// 色はmobes2.0原色をダークテーマ向けに微調整（暗い色は視認性確保のため明度+10%）
 export const EDGE_STYLES: Record<EdgeType, {
   color: string;
   strokeWidth: number;
   strokeDasharray?: string;
   animated: boolean;
 }> = {
-  wired:    { color: '#3B82F6', strokeWidth: 2, animated: false },
-  wireless: { color: '#06B6D4', strokeWidth: 2, strokeDasharray: '8 4', animated: true },
-  vpn:      { color: '#10B981', strokeWidth: 2, strokeDasharray: '6 3 2 3', animated: true },
-  logical:  { color: '#F59E0B', strokeWidth: 1, strokeDasharray: '4 4', animated: false },
-  route:    { color: '#EF4444', strokeWidth: 3, animated: true },
+  wired:    { color: '#607D8B', strokeWidth: 2, animated: false },                       // mobes2.0=#455A64 → dark bg用明度調整
+  wireless: { color: '#4CAF50', strokeWidth: 2, strokeDasharray: '5 5', animated: true }, // mobes2.0=#4CAF50 exact
+  vpn:      { color: '#9C27B0', strokeWidth: 2, strokeDasharray: '10 5', animated: false }, // mobes2.0=#9C27B0 exact
+  logical:  { color: '#00BCD4', strokeWidth: 1, strokeDasharray: '3 3', animated: false }, // mobes2.0 virtual=#00BCD4 exact
+  route:    { color: '#EF4444', strokeWidth: 3, animated: true },                          // LPG2固有: プロキシルート表示用
 };
 
 // ============================================================================
