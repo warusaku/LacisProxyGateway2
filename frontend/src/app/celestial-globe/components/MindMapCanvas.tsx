@@ -218,6 +218,10 @@ export function MindMapCanvas() {
 
   const onNodeDragStop: NodeDragHandler = useCallback((_event, node) => {
     const dropTarget = useUIStateStore.getState().dropParentNodeId;
+    // Capture position BEFORE any state updates — React 18 batching may
+    // defer setNodes updater execution, by which time the ref would be null.
+    const originalPos = dragStartPosRef.current;
+    dragStartPosRef.current = null;
 
     if (dropTarget && dropTarget !== node.id) {
       // Reparent
@@ -225,18 +229,17 @@ export function MindMapCanvas() {
       if (topoNode && topoNode.parent_id !== dropTarget) {
         updateParent(node.id, dropTarget);
       }
-    } else if (dragStartPosRef.current) {
+    } else if (originalPos) {
       // Return to original position
       setNodes(nds =>
         nds.map(n =>
           n.id === node.id
-            ? { ...n, position: dragStartPosRef.current! }
+            ? { ...n, position: originalPos }
             : n
         )
       );
     }
 
-    dragStartPosRef.current = null;
     clearDraggingState();
   }, [topoNodes, updateParent, clearDraggingState, setNodes]);
 
