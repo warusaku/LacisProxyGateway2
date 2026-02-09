@@ -1,30 +1,19 @@
+// CelestialGlobe v2 — TopologyEdge
+// mobes2.0 edgeHelpers.ts (279行) 準拠
+// edge_type別スタイル, LODラベル, アニメーション
+
 'use client';
 
-/**
- * TopologyEdge Component
- *
- * ReactFlow カスタムエッジ - ネットワーク接続線
- * SSOT: mobes2.0 TopologyEdge.tsx を LPG2 ダークテーマ向けに移植
- *
- * mobes2.0 仕様:
- *   - getBezierPath + BaseEdge + EdgeLabelRenderer
- *   - edgeTypes = { topology: TopologyEdge } で登録
- *   - defaultEdgeOptions = { type: 'topology' }
- *   - data.connectionType でスタイル決定
- *   - selected 時は stroke=#1976d2, strokeWidth+1
- *   - animated class で wireless エッジアニメーション
- */
-
-import { memo } from 'react';
+import React, { memo } from 'react';
 import {
-  getSmoothStepPath,
+  getBezierPath,
   EdgeLabelRenderer,
-  type EdgeProps,
 } from 'reactflow';
+import type { EdgeProps } from 'reactflow';
 import { EDGE_STYLES } from '../constants';
-import type { EdgeType, TopologyEdgeData } from '../types';
+import type { EdgeType } from '../types';
 
-export const TopologyEdge = memo(({
+function TopologyEdgeInner({
   id,
   sourceX,
   sourceY,
@@ -34,92 +23,50 @@ export const TopologyEdge = memo(({
   targetPosition,
   data,
   selected,
-  markerEnd,
-}: EdgeProps) => {
-  const edgeData = data as TopologyEdgeData | undefined;
-  const connectionType: EdgeType = edgeData?.connectionType || 'wired';
-  const style = EDGE_STYLES[connectionType] || EDGE_STYLES.wired;
-  const animated = edgeData?.animated ?? connectionType === 'wireless';
+}: EdgeProps) {
+  const edgeType = (data?.connectionType ?? 'wired') as EdgeType;
+  const style = EDGE_STYLES[edgeType] ?? EDGE_STYLES['wired'];
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
+    sourcePosition,
     targetPosition,
-    borderRadius: 8,
   });
 
-  // reactflow v11 の BaseEdge は className を受け付けないため、
-  // 直接 <path> を描画してアニメーション用クラスを付与する
+  const strokeColor = selected ? '#60A5FA' : style.color;
+
   return (
     <>
       <path
         id={id}
-        className={`react-flow__edge-path ${animated ? 'react-flow__edge-path--animated' : ''}`}
+        className={style.animated ? 'edge-animated' : ''}
         d={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          stroke: selected ? '#60A5FA' : style.color,
-          strokeWidth: selected ? style.strokeWidth + 1 : style.strokeWidth,
-          strokeDasharray: style.strokeDasharray,
-          fill: 'none',
-        }}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={style.strokeWidth}
+        strokeDasharray={style.strokeDasharray}
+        strokeLinecap="round"
       />
-      {/* Invisible interaction path for easier click target */}
-      <path
-        d={edgePath}
-        style={{
-          stroke: 'transparent',
-          strokeWidth: 20,
-          fill: 'none',
-        }}
-      />
-
-      {/* Label */}
-      {edgeData?.label && (
+      {/* Edge label — LOD mid以上で表示 */}
+      {data?.label && (
         <EdgeLabelRenderer>
           <div
+            className="lod-mid absolute pointer-events-none"
             style={{
-              position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              background: 'rgba(10, 10, 10, 0.9)',
-              padding: '2px 6px',
-              borderRadius: 4,
-              fontSize: 10,
-              fontWeight: 500,
-              color: style.color,
-              border: `1px solid ${style.color}`,
-              pointerEvents: 'all',
             }}
           >
-            {edgeData.label}
-          </div>
-        </EdgeLabelRenderer>
-      )}
-
-      {/* Bandwidth label */}
-      {edgeData?.bandwidth && !edgeData?.label && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              background: 'rgba(10, 10, 10, 0.8)',
-              padding: '1px 4px',
-              borderRadius: 2,
-              fontSize: 9,
-              color: '#6B7280',
-              pointerEvents: 'none',
-            }}
-          >
-            {edgeData.bandwidth}
+            <span className="cg-glass-card px-2 py-0.5 text-[10px] text-gray-300">
+              {data.label}
+            </span>
           </div>
         </EdgeLabelRenderer>
       )}
     </>
   );
-});
+}
 
-TopologyEdge.displayName = 'TopologyEdge';
+export const TopologyEdge = memo(TopologyEdgeInner);

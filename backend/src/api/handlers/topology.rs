@@ -161,6 +161,11 @@ pub struct CollapseRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateOrderRequest {
+    pub new_order: u32,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateLogicDeviceRequest {
     pub label: String,
     pub device_type: String,
@@ -783,6 +788,38 @@ pub async fn update_node_parent(
         "ok": true,
         "node_id": node_id,
         "new_parent_id": new_parent_id,
+    })))
+}
+
+/// PUT /api/topology/nodes/:id/order — update sibling order
+pub async fn update_node_order(
+    State(state): State<ProxyState>,
+    Extension(user): Extension<AuthUser>,
+    Path(node_id): Path<String>,
+    Json(req): Json<UpdateOrderRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_permission(&user, 50)?;
+
+    let mongo = &state.app_state.mongo;
+
+    // Verify node exists
+    let _node = mongo
+        .get_user_object_detail_by_id(&node_id)
+        .await
+        .map_err(|e| AppError::InternalError(e))?
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Node '{}' not found", node_id))
+        })?;
+
+    mongo
+        .update_user_object_detail_sort_order(&node_id, req.new_order)
+        .await
+        .map_err(|e| AppError::InternalError(e))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "node_id": node_id,
+        "new_order": req.new_order,
     })))
 }
 

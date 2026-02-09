@@ -1,49 +1,41 @@
+// CelestialGlobe v2 — ViewModeSelector
+// mindmap/outline/split 切替
+
 'use client';
 
-import type { ViewMode, TopologyViewFilter } from '../types';
-import { useTopologyStore } from '../stores/useTopologyStore';
+import React from 'react';
+import { LayoutGrid, List, Columns } from 'lucide-react';
+import type { ViewMode } from '../types';
 
-export function ViewModeSelector() {
-  const viewMode = useTopologyStore(s => s.viewMode);
-  const setViewMode = useTopologyStore(s => s.setViewMode);
-  const viewFilter = useTopologyStore(s => s.viewFilter);
-  const setViewFilter = useTopologyStore(s => s.setViewFilter);
+interface ViewModeSelectorProps {
+  mode: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}
 
-  const modes: { key: ViewMode; label: string }[] = [
-    { key: 'mindmap', label: 'MindMap' },
-    { key: 'outline', label: 'Outline' },
-    { key: 'split', label: 'Split' },
-  ];
+const MODES: { value: ViewMode; label: string; icon: React.ReactNode }[] = [
+  { value: 'mindmap', label: 'Canvas', icon: <LayoutGrid size={14} /> },
+  { value: 'outline', label: 'Outline', icon: <List size={14} /> },
+  { value: 'split', label: 'Split', icon: <Columns size={14} /> },
+];
 
-  const filters: { key: TopologyViewFilter; label: string }[] = [
-    { key: 'full', label: 'All' },
-    { key: 'routes', label: 'Routes' },
-  ];
-
+export function ViewModeSelector({ mode, onChange }: ViewModeSelectorProps) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <div className="cg-view-mode">
-        {modes.map(m => (
-          <button
-            key={m.key}
-            className={`cg-view-mode-btn ${viewMode === m.key ? 'cg-view-mode-btn--active' : ''}`}
-            onClick={() => setViewMode(m.key)}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <div className="cg-view-mode">
-        {filters.map(f => (
-          <button
-            key={f.key}
-            className={`cg-view-mode-btn ${viewFilter === f.key ? 'cg-view-mode-btn--active' : ''}`}
-            onClick={() => setViewFilter(f.key)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+    <div className="flex items-center gap-0.5 cg-glass-card p-1">
+      {MODES.map(m => (
+        <button
+          key={m.value}
+          onClick={() => onChange(m.value)}
+          className={[
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+            mode === m.value
+              ? 'bg-blue-600/80 text-white'
+              : 'text-gray-400 hover:bg-white/10 hover:text-gray-200',
+          ].join(' ')}
+        >
+          {m.icon}
+          {m.label}
+        </button>
+      ))}
     </div>
   );
 }

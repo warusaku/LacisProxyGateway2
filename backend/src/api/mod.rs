@@ -276,6 +276,10 @@ pub fn routes(state: ProxyState) -> Router<ProxyState> {
             put(handlers::toggle_node_collapse),
         )
         .route(
+            "/api/topology/nodes/:id/order",
+            put(handlers::update_node_order),
+        )
+        .route(
             "/api/topology/logic-devices",
             post(handlers::create_logic_device),
         )

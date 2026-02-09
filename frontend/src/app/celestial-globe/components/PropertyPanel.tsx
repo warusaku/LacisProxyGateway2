@@ -1,415 +1,207 @@
+// CelestialGlobe v2 — PropertyPanel
+// mobes2.0 PropertyPanel.tsx (863行) + PropertyPanelBasicSections.tsx (433行) 準拠
+// 選択ノードの詳細表示・編集パネル
+
 'use client';
 
-import { useMemo, useCallback, useState } from 'react';
-import { X, Trash2, Copy, Check, ArrowUpRight } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Save, RotateCcw } from 'lucide-react';
+import type { TopologyNodeV2 } from '../types';
 import { useTopologyStore } from '../stores/useTopologyStore';
-import { lacisIdApi } from '@/lib/api';
-import { NODE_COLORS, STATUS_COLORS } from '../constants';
-import type { TopologyNodeV2, NodeType } from '../types';
+import { useUIStateStore } from '../stores/useUIStateStore';
+import { NetworkDeviceIcon } from './icons';
+import {
+  getStatusBadge,
+  getSourceBadge,
+  formatMacDisplay,
+  formatNodeTypeLabel,
+  getConnectionBadge,
+} from './deviceNode/helpers';
+
+// ============================================================================
+// Section Component
+// ============================================================================
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        {title}
+      </h3>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string | React.ReactNode }) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-xs text-gray-500 w-20 flex-shrink-0">{label}</span>
+      <span className="text-xs text-gray-300 break-all">{value}</span>
+    </div>
+  );
+}
+
+// ============================================================================
+// PropertyPanel
+// ============================================================================
 
 export function PropertyPanel() {
+  const selectedNodeId = useUIStateStore(s => s.selectedNodeId);
+  const clearSelection = useUIStateStore(s => s.clearSelection);
   const nodes = useTopologyStore(s => s.nodes);
-  const selectedNodeId = useTopologyStore(s => s.selectedNodeId);
-  const setSelectedNodeId = useTopologyStore(s => s.setSelectedNodeId);
-  const deleteLogicDevice = useTopologyStore(s => s.deleteLogicDevice);
-  const updateParent = useTopologyStore(s => s.updateParent);
-  const fetchTopology = useTopologyStore(s => s.fetchTopology);
-  const [assigning, setAssigning] = useState(false);
-  const [reparenting, setReparenting] = useState(false);
-  const [showReparent, setShowReparent] = useState(false);
+  const updateNodeLabel = useTopologyStore(s => s.updateNodeLabel);
 
-  const node = useMemo(
-    () => nodes.find(n => n.id === selectedNodeId) ?? null,
-    [nodes, selectedNodeId]
-  );
+  const [editingLabel, setEditingLabel] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
-  const handleAssignLacisId = useCallback(async (n: TopologyNodeV2) => {
-    if (!n.candidate_lacis_id || !n.mac) return;
-    setAssigning(true);
-    try {
-      const idParts = n.id.split(':');
-      const actualDeviceId = n.source === 'omada' ? n.mac : (idParts.length >= 2 ? idParts[1] : n.mac);
-      await lacisIdApi.assign(actualDeviceId, n.source, n.candidate_lacis_id);
-      await fetchTopology();
-    } catch (e) {
-      console.error('Failed to assign lacis_id:', e);
-    } finally {
-      setAssigning(false);
+  const node: TopologyNodeV2 | null = selectedNodeId
+    ? nodes.find(n => n.id === selectedNodeId) ?? null
+    : null;
+
+  // Reset form on node change
+  useEffect(() => {
+    if (node) {
+      setEditingLabel(node.label);
+      setIsDirty(false);
     }
-  }, [fetchTopology]);
+  }, [node?.id, node?.label]);
 
-  const handleDelete = useCallback(async () => {
-    if (!node || (node.source !== 'logic' && node.source !== 'manual')) return;
-    if (!confirm(`Delete logic device "${node.label}"?`)) return;
-    // Logic device ID is in metadata (nodeOrder uses pseudo-MAC as node ID)
-    const logicDeviceId = (node.metadata?.logic_device_id as string) || node.id;
-    await deleteLogicDevice(logicDeviceId);
-    setSelectedNodeId(null);
-  }, [node, deleteLogicDevice, setSelectedNodeId]);
+  const handleLabelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditingLabel(e.target.value);
+    setIsDirty(e.target.value !== node?.label);
+  }, [node?.label]);
 
-  const handleReparent = useCallback(async (newParentId: string) => {
-    if (!node) return;
-    setReparenting(true);
-    try {
-      await updateParent(node.id, newParentId);
-      setShowReparent(false);
-    } catch (e) {
-      console.error('Failed to reparent:', e);
-    } finally {
-      setReparenting(false);
+  const handleSave = useCallback(async () => {
+    if (node && editingLabel.trim() && editingLabel !== node.label) {
+      await updateNodeLabel(node.id, editingLabel.trim());
+      setIsDirty(false);
     }
-  }, [node, updateParent]);
+  }, [node, editingLabel, updateNodeLabel]);
 
-  // Available parent candidates: all infra nodes except self and descendants
-  const parentCandidates = useMemo(() => {
-    if (!node) return [];
-    const selfAndDescendants = new Set<string>();
-    selfAndDescendants.add(node.id);
-    // Simple BFS to find descendants
-    const queue = [node.id];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      for (const n of nodes) {
-        if (n.parent_id === current && !selfAndDescendants.has(n.id)) {
-          selfAndDescendants.add(n.id);
-          queue.push(n.id);
-        }
-      }
+  const handleRevert = useCallback(() => {
+    if (node) {
+      setEditingLabel(node.label);
+      setIsDirty(false);
     }
-    return nodes
-      .filter(n => !selfAndDescendants.has(n.id) && n.id !== '__internet__')
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [node, nodes]);
+  }, [node]);
 
-  if (!node) {
-    return (
-      <div className="cg-glass-card" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: 13 }}>
-        Select a node to view details
-      </div>
-    );
-  }
+  if (!node) return null;
 
-  const nodeType = node.node_type as NodeType;
-  const colors = NODE_COLORS[nodeType] || NODE_COLORS.client;
-  const statusColor = STATUS_COLORS[node.status] || STATUS_COLORS.unknown;
-
-  // Resolve parent label for display
-  const parentLabel = node.parent_id
-    ? nodes.find(n => n.id === node.parent_id)?.label || node.parent_id
-    : '(root)';
+  const statusBadge = getStatusBadge(node.state_type, node.status);
+  const sourceBadge = getSourceBadge(node.source);
+  const connBadge = getConnectionBadge(node.connection_type);
+  const metadata = node.metadata || {};
 
   return (
-    <div className="cg-glass-card" style={{ width: '100%', height: '100%', overflow: 'auto', padding: '12px 14px' }}>
+    <div className="animate-slide-in-right w-[360px] h-full cg-glass-panel flex flex-col">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: '#E5E7EB', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className="flex items-center justify-between p-4 border-b border-white/10">
+        <div className="flex items-center gap-2 min-w-0">
+          <NetworkDeviceIcon type={node.node_type} size={20} className="text-gray-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-200 truncate">
             {node.label}
-          </h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: `${colors.bg}33`, color: colors.bg, fontWeight: 600 }}>
-              {node.node_type}
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: statusColor }}>
-              <span className={`cg-status-dot cg-status-dot--${node.status}`} />
-              {node.status}
-            </span>
-          </div>
+          </span>
         </div>
         <button
-          onClick={() => setSelectedNodeId(null)}
-          style={{ border: 'none', background: 'none', color: '#6B7280', cursor: 'pointer', padding: 2 }}
+          onClick={clearSelection}
+          className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-gray-200 transition-colors"
         >
           <X size={16} />
         </button>
       </div>
 
-      {/* Basic Info */}
-      <div className="cg-section">
-        <div className="cg-section-title">Basic Info</div>
-        <PropRow label="Source" value={node.source} />
-        {node.ip && <PropRow label="IP" value={node.ip} mono copyable />}
-        {node.mac && <PropRow label="MAC" value={node.mac} mono copyable />}
-        {node.product_type && <PropRow label="Product Type" value={node.product_type} />}
-        {node.network_device_type && <PropRow label="Device Type" value={node.network_device_type} />}
-        {node.fid && <PropRow label="Facility ID" value={node.fid} />}
-        {node.facility_name && <PropRow label="Facility" value={node.facility_name} />}
-        <PropRow label="Connection" value={node.connection_type} />
-      </div>
-
-      {/* LacisID */}
-      <div className="cg-section">
-        <div className="cg-section-title">LacisID</div>
-        {node.lacis_id ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(16,185,129,0.2)', color: '#10B981', fontWeight: 600 }}>
-                Assigned
-              </span>
-            </div>
-            <CopyableValue value={node.lacis_id} color="#10B981" />
-          </>
-        ) : node.candidate_lacis_id ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.2)', color: '#F59E0B', fontWeight: 600 }}>
-                Candidate
-              </span>
-            </div>
-            <CopyableValue value={node.candidate_lacis_id} color="#F59E0B" />
-            <button
-              onClick={() => handleAssignLacisId(node)}
-              disabled={assigning}
-              style={{
-                width: '100%',
-                padding: '6px 0',
-                fontSize: 12,
-                fontWeight: 600,
-                borderRadius: 6,
-                border: '1px solid rgba(59,130,246,0.5)',
-                background: 'rgba(59,130,246,0.15)',
-                color: '#60A5FA',
-                cursor: assigning ? 'wait' : 'pointer',
-                marginTop: 6,
-              }}
-            >
-              {assigning ? 'Assigning...' : 'Assign LacisID'}
-            </button>
-          </>
-        ) : (
-          <div style={{ fontSize: 12, color: '#6B7280' }}>N/A</div>
-        )}
-      </div>
-
-      {/* Type-specific sections */}
-      <TypeSpecificSection node={node} />
-
-      {/* Metadata — show all fields, no information suppression */}
-      <div className="cg-section">
-        <div className="cg-section-title">Metadata</div>
-        {Object.keys(node.metadata).length === 0 ? (
-          <div style={{ fontSize: 11, color: '#6B7280' }}>No metadata</div>
-        ) : (
-          Object.entries(node.metadata).map(([k, v]) => {
-            if (v === null || v === undefined) return <PropRow key={k} label={k} value="null" />;
-            const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-            return <PropRow key={k} label={k} value={val} />;
-          })
-        )}
-      </div>
-
-      {/* Topology Info */}
-      <div className="cg-section">
-        <div className="cg-section-title">Topology</div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <PropRow label="Parent" value={parentLabel} />
-          {node.node_type !== 'internet' && (
-            <button
-              onClick={() => setShowReparent(!showReparent)}
-              style={{
-                border: 'none',
-                background: 'none',
-                color: showReparent ? '#3B82F6' : '#6B7280',
-                cursor: 'pointer',
-                padding: '0 2px',
-                flexShrink: 0,
-              }}
-              title="Change parent"
-            >
-              <ArrowUpRight size={12} />
-            </button>
-          )}
-        </div>
-        {showReparent && node.node_type !== 'internet' && (
-          <div style={{ marginTop: 4, marginBottom: 4 }}>
-            <select
-              onChange={e => {
-                if (e.target.value) handleReparent(e.target.value);
-              }}
-              disabled={reparenting}
-              defaultValue=""
-              style={{
-                width: '100%',
-                fontSize: 11,
-                padding: '4px 6px',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(51,51,51,0.5)',
-                borderRadius: 4,
-                color: '#E5E7EB',
-                outline: 'none',
-              }}
-            >
-              <option value="" disabled>
-                {reparenting ? 'Reparenting...' : 'Select new parent...'}
-              </option>
-              {parentCandidates.map(c => (
-                <option key={c.id} value={c.id} style={{ background: '#1a1a1a' }}>
-                  {c.label} ({c.node_type})
-                </option>
-              ))}
-            </select>
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto cg-scrollbar p-4">
+        {/* Basic Info */}
+        <Section title="Basic Information">
+          {/* Label edit */}
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Label</label>
+            <input
+              type="text"
+              value={editingLabel}
+              onChange={handleLabelChange}
+              className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-sm text-gray-200 outline-none focus:ring-1 focus:ring-blue-400"
+            />
           </div>
+
+          <Field label="Type" value={
+            <span className="flex items-center gap-1">
+              <NetworkDeviceIcon type={node.node_type} size={14} className="text-gray-400" />
+              {formatNodeTypeLabel(node.node_type)}
+            </span>
+          } />
+
+          <Field label="Status" value={
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusBadge.bg} ${statusBadge.text}`}>
+              {statusBadge.label}
+            </span>
+          } />
+
+          <Field label="IP" value={node.ip} />
+          <Field label="MAC" value={node.mac ? formatMacDisplay(node.mac) : undefined} />
+
+          {sourceBadge && (
+            <Field label="Source" value={
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${sourceBadge.bg} ${sourceBadge.text}`}>
+                {sourceBadge.label}
+              </span>
+            } />
+          )}
+        </Section>
+
+        {/* Identifiers */}
+        <Section title="Identifiers">
+          <Field label="LacisID" value={node.lacis_id} />
+          <Field label="FID" value={node.fid} />
+          <Field label="Node ID" value={node.id} />
+          {node.parent_id && <Field label="Parent" value={node.parent_id} />}
+        </Section>
+
+        {/* Connection */}
+        <Section title="Connection">
+          {connBadge && (
+            <Field label="Type" value={
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-white ${connBadge.color}`}>
+                {connBadge.label}
+              </span>
+            } />
+          )}
+          <Field label="Order" value={String(node.order)} />
+          <Field label="Collapsed" value={node.collapsed ? 'Yes' : 'No'} />
+          <Field label="Descendants" value={String(node.descendant_count)} />
+        </Section>
+
+        {/* Metadata */}
+        {Object.keys(metadata).length > 0 && (
+          <Section title="Metadata">
+            {Object.entries(metadata).map(([key, value]) => (
+              <Field key={key} label={key} value={String(value ?? '')} />
+            ))}
+          </Section>
         )}
-        <PropRow label="Descendants" value={String(node.descendant_count)} />
-        <PropRow label="Order" value={String(node.order)} />
-        <PropRow label="State" value={node.state_type} />
-        {node.device_type && <PropRow label="Device Type" value={node.device_type} />}
-        <PropRow label="ID" value={node.id} mono copyable />
       </div>
 
-      {/* LogicDevice actions */}
-      {(node.source === 'logic' || node.source === 'manual') && (
-        <div className="cg-section" style={{ display: 'flex', gap: 8 }}>
+      {/* Footer — Save/Revert */}
+      {isDirty && (
+        <div className="flex items-center gap-2 p-4 border-t border-white/10">
           <button
-            onClick={handleDelete}
-            style={{
-              flex: 1,
-              padding: '6px 0',
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: '1px solid rgba(239,68,68,0.5)',
-              background: 'rgba(239,68,68,0.15)',
-              color: '#EF4444',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 4,
-            }}
+            onClick={handleSave}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md transition-colors"
           >
-            <Trash2 size={12} /> Delete
+            <Save size={14} />
+            Save
+          </button>
+          <button
+            onClick={handleRevert}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-md transition-colors"
+          >
+            <RotateCcw size={14} />
           </button>
         </div>
       )}
     </div>
   );
-}
-
-/** Inline copyable value with monospace font */
-function CopyableValue({ value, color }: { value: string; color: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* ignore */ }
-  }, [value]);
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 11, color, wordBreak: 'break-all', flex: 1 }}>
-        {value}
-      </div>
-      <button
-        onClick={handleCopy}
-        style={{ border: 'none', background: 'none', color: copied ? '#10B981' : '#6B7280', cursor: 'pointer', padding: 2, flexShrink: 0 }}
-        title="Copy to clipboard"
-      >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-}
-
-function TypeSpecificSection({ node }: { node: TopologyNodeV2 }) {
-  const m = node.metadata as Record<string, string | number | boolean | null | undefined | unknown[]>;
-
-  switch (node.node_type) {
-    case 'router':
-    case 'gateway':
-      return (
-        <div className="cg-section">
-          <div className="cg-section-title">Network</div>
-          {m.wan_ip ? <PropRow label="WAN IP" value={String(m.wan_ip)} mono copyable /> : null}
-          {m.lan_ip ? <PropRow label="LAN IP" value={String(m.lan_ip)} mono copyable /> : null}
-          {m.ssid_24g ? <PropRow label="SSID 2.4G" value={String(m.ssid_24g)} /> : null}
-          {m.ssid_5g ? <PropRow label="SSID 5G" value={String(m.ssid_5g)} /> : null}
-          {m.client_count !== undefined ? <PropRow label="Clients" value={String(m.client_count)} /> : null}
-        </div>
-      );
-
-    case 'client':
-      return (
-        <div className="cg-section">
-          <div className="cg-section-title">Client Info</div>
-          {m.vendor ? <PropRow label="Vendor" value={String(m.vendor)} /> : null}
-          {m.os_name ? <PropRow label="OS" value={String(m.os_name)} /> : null}
-          {m.ssid ? <PropRow label="SSID" value={String(m.ssid)} /> : null}
-          {m.signal_level != null ? <PropRow label="Signal" value={`${m.signal_level} dBm`} /> : null}
-          {m.traffic_down !== undefined ? <PropRow label="Traffic Down" value={formatBytes(Number(m.traffic_down))} /> : null}
-          {m.traffic_up !== undefined ? <PropRow label="Traffic Up" value={formatBytes(Number(m.traffic_up))} /> : null}
-        </div>
-      );
-
-    case 'wg_peer':
-      return (
-        <div className="cg-section">
-          <div className="cg-section-title">WireGuard</div>
-          {m.interface_name ? <PropRow label="Interface" value={String(m.interface_name)} /> : null}
-          {m.public_key ? <PropRow label="Public Key" value={String(m.public_key)} mono copyable /> : null}
-          {m.allow_address ? <PropRow label="Allowed IPs" value={JSON.stringify(m.allow_address)} /> : null}
-        </div>
-      );
-
-    case 'external':
-      return (
-        <div className="cg-section">
-          <div className="cg-section-title">External</div>
-          {m.protocol ? <PropRow label="Protocol" value={String(m.protocol)} /> : null}
-          {m.device_model ? <PropRow label="Model" value={String(m.device_model)} /> : null}
-          {m.client_count !== undefined ? <PropRow label="Clients" value={String(m.client_count)} /> : null}
-        </div>
-      );
-
-    case 'logic_device':
-      return (
-        <div className="cg-section">
-          <div className="cg-section-title">Logic Device</div>
-          {m.location ? <PropRow label="Location" value={String(m.location)} /> : null}
-          {m.note ? <PropRow label="Note" value={String(m.note)} /> : null}
-        </div>
-      );
-
-    default:
-      return null;
-  }
-}
-
-function PropRow({ label, value, mono, copyable }: { label: string; value: string; mono?: boolean; copyable?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* ignore */ }
-  }, [value]);
-
-  return (
-    <div className="cg-prop-row" style={{ display: 'flex', alignItems: 'center' }}>
-      <span className="cg-prop-label">{label}</span>
-      <span className={`cg-prop-value ${mono ? 'cg-prop-value--mono' : ''}`} title={value} style={{ flex: 1 }}>
-        {value}
-      </span>
-      {copyable && (
-        <button
-          onClick={handleCopy}
-          style={{ border: 'none', background: 'none', color: copied ? '#10B981' : '#4B5563', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}
-          title="Copy"
-        >
-          {copied ? <Check size={10} /> : <Copy size={10} />}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }

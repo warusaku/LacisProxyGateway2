@@ -1099,6 +1099,12 @@ export const topologyV2Api = {
       `/topology/logic-devices/${encodeURIComponent(id)}?confirm=true`,
       { method: 'DELETE' }
     ),
+
+  updateNodeOrder: (nodeId: string, newOrder: number) =>
+    request<{ ok: boolean; node_id: string; new_order: number }>(
+      `/topology/nodes/${encodeURIComponent(nodeId)}/order`,
+      { method: 'PUT', body: JSON.stringify({ new_order: newOrder }) }
+    ),
 };
 
 // ============================================================================

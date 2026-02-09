@@ -1,162 +1,339 @@
-/* CelestialGlobe v2 — Styles (mobes2.0 spec) */
+/* CelestialGlobe v2 — styles.css
+ * mobes2.0 topologyManager.css (1942行) から LPG2 向けに移植
+ * LOD 4段階, ガラスモーフィズム, ノードアニメーション, ドラッグ状態,
+ * dimmedノード, 折りたたみドットリング, エッジフロー, MiniMap ダークテーマ
+ */
 
 /* ============================================================================
- * Selection pulse — mobes2.0 exact
- * ============================================================================ */
+   LOD (Level of Detail) — 4段階切替
+   canvas要素の data-lod 属性で制御。React再レンダリング不要。
+   ============================================================================ */
 
-@keyframes mindmap-selection-pulse-strong-anim {
+/* low: アイコン+ラベルのみ */
+[data-lod="low"] .lod-mid,
+[data-lod="low"] .lod-high,
+[data-lod="low"] .lod-full {
+  display: none !important;
+}
+
+/* mid: バッジ・IP表示 */
+[data-lod="mid"] .lod-high,
+[data-lod="mid"] .lod-full {
+  display: none !important;
+}
+
+/* high: MAC・LacisID表示 */
+[data-lod="high"] .lod-full {
+  display: none !important;
+}
+
+/* full: 全て表示 (デフォルト, 明示制御不要) */
+
+/* ============================================================================
+   ガラスモーフィズム
+   ============================================================================ */
+
+.cg-glass-card {
+  background: rgba(30, 30, 46, 0.75);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.cg-glass-panel {
+  background: rgba(15, 15, 30, 0.85);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ============================================================================
+   ノードスタイル
+   ============================================================================ */
+
+.mindmap-node {
+  contain: layout style;
+  will-change: transform;
+  transition: box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.mindmap-node:hover {
+  z-index: 10;
+}
+
+.mindmap-node.selected {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.8),
+              0 0 16px rgba(96, 165, 250, 0.3);
+}
+
+/* ============================================================================
+   ノードアニメーション
+   ============================================================================ */
+
+/* spawn: fadeIn + scaleIn */
+@keyframes cg-node-spawn {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-spawn {
+  animation: cg-node-spawn 0.3s ease-out both;
+}
+
+/* selection-pulse */
+@keyframes cg-selection-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4);
+    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.7);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(56, 189, 248, 0);
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.4),
+                0 0 20px rgba(96, 165, 250, 0.2);
   }
 }
 
-.mindmap-selection-pulse-strong {
-  animation: mindmap-selection-pulse-strong-anim 2s ease-in-out infinite;
+.animate-selection-pulse {
+  animation: cg-selection-pulse 2s ease-in-out infinite;
 }
 
 /* ============================================================================
- * Pulse subtle — collapsed dot ring
- * ============================================================================ */
+   ドラッグ状態
+   ============================================================================ */
 
-@keyframes pulseSubtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+.is-dragging .mindmap-node:not(.drag-target) {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.is-dragging .drag-target {
+  opacity: 1;
+}
+
+.drag-source {
+  z-index: 100 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* drop target highlight */
+.drop-target-valid {
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.7),
+              0 0 20px rgba(52, 211, 153, 0.3) !important;
+}
+
+.drop-target-invalid {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.7) !important;
+}
+
+/* ============================================================================
+   dimmed ノード
+   ============================================================================ */
+
+.node-dimmed {
+  opacity: 0.35;
+  filter: grayscale(60%);
+  pointer-events: none;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.node-dimmed:hover {
+  opacity: 0.6;
+  filter: grayscale(30%);
+  pointer-events: auto;
+}
+
+/* ============================================================================
+   折りたたみドットリング
+   ============================================================================ */
+
+@keyframes cg-pulse-subtle {
+  0%, 100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
 }
 
 .animate-pulse-subtle {
-  animation: pulseSubtle 2s ease-in-out infinite;
+  animation: cg-pulse-subtle 3s ease-in-out infinite;
 }
 
 /* ============================================================================
- * Node base transition
- * ============================================================================ */
-
-.mindmap-node {
-  transition: all 0.15s ease;
-}
-
-/* ============================================================================
- * Edge flow animation
- * ============================================================================ */
+   エッジフローアニメーション
+   ============================================================================ */
 
 @keyframes cg-edge-flow {
-  0% { stroke-dashoffset: 24; }
-  100% { stroke-dashoffset: 0; }
+  0% {
+    stroke-dashoffset: 20;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
 }
 
-.react-flow__edge-path--animated {
-  animation: cg-edge-flow 1.4s linear infinite;
-}
-
-/* ============================================================================
- * Canvas overrides
- * ============================================================================ */
-
-.cg-canvas .react-flow__background {
-  background: #0f172a !important;
-}
-
-.cg-canvas .react-flow__controls {
-  display: none;
-}
-
-.cg-canvas .react-flow__attribution {
-  display: none;
-}
-
-/* ReactFlow MiniMap — dark theme override */
-.cg-canvas .react-flow__minimap {
-  background: rgba(10, 10, 10, 0.9);
+.edge-animated path {
+  animation: cg-edge-flow 1s linear infinite;
 }
 
 /* ============================================================================
- * Glass card (used by Legend, LogicDeviceDialog, etc.)
- * ============================================================================ */
+   ReactFlow オーバーライド
+   ============================================================================ */
 
-.cg-glass-card {
-  background: rgba(10, 10, 10, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(51, 51, 51, 0.5);
-  border-radius: 8px;
+/* 背景 */
+.react-flow__background {
+  background-color: #020202 !important;
+}
+
+/* コントロール */
+.react-flow__controls {
+  background: rgba(30, 30, 46, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  color: #9CA3AF !important;
+  fill: #9CA3AF !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #E5E7EB !important;
+  fill: #E5E7EB !important;
+}
+
+/* アトリビューション非表示 */
+.react-flow__attribution {
+  display: none !important;
 }
 
 /* ============================================================================
- * View mode selector
- * ============================================================================ */
+   MiniMap ダークテーマ
+   ============================================================================ */
 
-.cg-view-mode {
-  display: flex;
-  gap: 2px;
-  background: rgba(10, 10, 10, 0.6);
-  border-radius: 6px;
-  padding: 2px;
-  border: 1px solid rgba(51, 51, 51, 0.5);
+.react-flow__minimap {
+  background: rgba(15, 15, 30, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 8px !important;
 }
 
-.cg-view-mode-btn {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 4px;
-  border: none;
+/* ============================================================================
+   コンテキストメニュー
+   ============================================================================ */
+
+@keyframes cg-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-pop-in {
+  animation: cg-pop-in 0.15s ease-out both;
+}
+
+/* ============================================================================
+   パネルアニメーション
+   ============================================================================ */
+
+@keyframes cg-slide-in-right {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes cg-slide-out-right {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.animate-slide-in-right {
+  animation: cg-slide-in-right 0.25s ease-out both;
+}
+
+.animate-slide-out-right {
+  animation: cg-slide-out-right 0.2s ease-in both;
+}
+
+/* ============================================================================
+   DragGuide オーバーレイ
+   ============================================================================ */
+
+@keyframes cg-float-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-float-in {
+  animation: cg-float-in 0.2s ease-out both;
+}
+
+/* ============================================================================
+   カスタムスクロールバー
+   ============================================================================ */
+
+.cg-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cg-scrollbar::-webkit-scrollbar-track {
   background: transparent;
-  color: #6B7280;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.cg-view-mode-btn:hover {
-  color: #E5E7EB;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.cg-view-mode-btn--active {
-  color: #60A5FA;
-  background: rgba(96, 165, 250, 0.1);
-}
-
-/* ============================================================================
- * Outline view items
- * ============================================================================ */
-
-.cg-outline-item {
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.1s ease;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8125rem;
-  color: #E5E7EB;
-}
-
-.cg-outline-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.cg-outline-item--selected {
-  background: rgba(59, 130, 246, 0.15);
-  border-left: 2px solid #3B82F6;
-}
-
-/* ============================================================================
- * Collapse badge
- * ============================================================================ */
-
-.cg-collapse-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 0 4px;
+.cg-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.15);
-  color: #E5E7EB;
+  border-radius: 3px;
+}
+
+.cg-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ============================================================================
+   prefers-reduced-motion
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spawn,
+  .animate-selection-pulse,
+  .animate-pulse-subtle,
+  .animate-pop-in,
+  .animate-slide-in-right,
+  .animate-slide-out-right,
+  .animate-float-in,
+  .edge-animated path {
+    animation: none !important;
+  }
 }
