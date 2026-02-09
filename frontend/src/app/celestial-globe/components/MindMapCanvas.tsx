@@ -116,6 +116,7 @@ function computeDfsLayout(nodes: TopologyNodeV2[]): Map<string, { x: number; y: 
   for (const n of nodes) {
     nodeById.set(n.id, n);
     const pid = n.parent_id || '__internet__';
+    if (pid === n.id) continue; // Skip self-referencing (__internet__ node)
     if (!childrenMap.has(pid)) childrenMap.set(pid, []);
     childrenMap.get(pid)!.push(n);
   }
