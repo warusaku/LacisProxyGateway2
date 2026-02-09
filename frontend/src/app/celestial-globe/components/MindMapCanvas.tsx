@@ -246,7 +246,15 @@ export function MindMapCanvas() {
 
   const onSelectionChange: OnSelectionChangeFunc = useCallback(({ nodes: selectedNodes }) => {
     if (selectedNodes.length > 0) {
-      selectOnly(selectedNodes.map(n => n.id));
+      const newIds = selectedNodes.map(n => n.id);
+      const current = useUIStateStore.getState().selectedNodeIds;
+      // Avoid re-setting same selection (prevents unnecessary re-render cascade)
+      if (
+        newIds.length !== current.length ||
+        newIds.some((id, i) => id !== current[i])
+      ) {
+        selectOnly(newIds);
+      }
     }
   }, [selectOnly]);
 

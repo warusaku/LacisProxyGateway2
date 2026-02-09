@@ -60,13 +60,17 @@ export function PropertyPanel() {
     ? nodes.find(n => n.id === selectedNodeId) ?? null
     : null;
 
+  // Stable references for effect dependencies
+  const nodeId = node?.id ?? null;
+  const nodeLabel = node?.label ?? '';
+
   // Reset form on node change
   useEffect(() => {
-    if (node) {
-      setEditingLabel(node.label);
+    if (nodeId) {
+      setEditingLabel(nodeLabel);
       setIsDirty(false);
     }
-  }, [node?.id, node?.label]);
+  }, [nodeId, nodeLabel]);
 
   const handleLabelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setEditingLabel(e.target.value);
@@ -89,10 +93,12 @@ export function PropertyPanel() {
 
   if (!node) return null;
 
-  const statusBadge = getStatusBadge(node.state_type, node.status);
-  const sourceBadge = getSourceBadge(node.source);
-  const connBadge = getConnectionBadge(node.connection_type);
-  const metadata = node.metadata || {};
+  const statusBadge = getStatusBadge(node.state_type ?? '', node.status ?? '');
+  const sourceBadge = getSourceBadge(node.source ?? '');
+  const connBadge = getConnectionBadge(node.connection_type ?? '');
+  const metadata = (node.metadata && typeof node.metadata === 'object' && !Array.isArray(node.metadata))
+    ? node.metadata as Record<string, unknown>
+    : {};
 
   return (
     <div className="animate-slide-in-right w-[360px] h-full cg-glass-panel flex flex-col">

@@ -23,10 +23,10 @@ import { useZoom } from './deviceNode/hooks';
 import { useUIStateStore } from '../stores/useUIStateStore';
 
 // ============================================================================
-// Types
+// Types (local — layoutTree builds nodes with { node: TopologyNodeV2 })
 // ============================================================================
 
-interface DeviceNodeData {
+interface CgDeviceNodeData {
   node: TopologyNodeV2;
 }
 
@@ -68,7 +68,7 @@ function CollapsedDotRing({ count }: { count: number }) {
 // DeviceNode Component
 // ============================================================================
 
-function DeviceNodeInner({ id, data, selected }: NodeProps<DeviceNodeData>) {
+function DeviceNodeInner({ id, data, selected }: NodeProps<CgDeviceNodeData>) {
   const node = data.node;
   const zoom = useZoom();
   const draggedNodeIds = useUIStateStore(s => s.draggedNodeIds);
@@ -109,16 +109,17 @@ function DeviceNodeInner({ id, data, selected }: NodeProps<DeviceNodeData>) {
     if (e.key === 'Escape') setIsEditing(false);
   }, [handleLabelSave]);
 
-  // Derived values
-  const colors = NODE_COLORS[node.node_type] ?? NODE_COLORS['client'];
-  const statusBadge = getStatusBadge(node.state_type, node.status);
-  const statusColor = getStatusColor(node.state_type || node.status);
-  const sourceBadge = getSourceBadge(node.source);
-  const connBadge = getConnectionBadge(node.connection_type);
-  const isLogicDevice = node.node_type === 'logic_device';
-  const isCollapsed = node.collapsed && node.collapsed_child_count > 0;
-  const isOffline = isOfflineStatus(node.state_type || node.status);
-  const isGateway = node.node_type === 'gateway';
+  // Derived values (null-safe — API fields may be missing for some node types)
+  const nodeType = node.node_type ?? 'client';
+  const colors = NODE_COLORS[nodeType] ?? NODE_COLORS['client'];
+  const statusBadge = getStatusBadge(node.state_type ?? '', node.status ?? '');
+  const statusColor = getStatusColor(node.state_type || node.status || 'unknown');
+  const sourceBadge = getSourceBadge(node.source ?? '');
+  const connBadge = getConnectionBadge(node.connection_type ?? '');
+  const isLogicDevice = nodeType === 'logic_device';
+  const isCollapsed = node.collapsed && (node.collapsed_child_count ?? 0) > 0;
+  const isOffline = isOfflineStatus(node.state_type || node.status || 'unknown');
+  const isGateway = nodeType === 'gateway';
 
   // Container classes
   const containerClasses = [

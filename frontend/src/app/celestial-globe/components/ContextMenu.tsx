@@ -68,8 +68,11 @@ function Divider() {
 // ============================================================================
 
 export function ContextMenu() {
-  const { contextMenu, closeContextMenu, selectOnly } = useUIStateStore();
-  const { toggleCollapse, deleteLogicDevice } = useTopologyStore();
+  const contextMenu = useUIStateStore(s => s.contextMenu);
+  const closeContextMenu = useUIStateStore(s => s.closeContextMenu);
+  const selectOnly = useUIStateStore(s => s.selectOnly);
+  const toggleCollapse = useTopologyStore(s => s.toggleCollapse);
+  const deleteLogicDevice = useTopologyStore(s => s.deleteLogicDevice);
   const nodes = useTopologyStore(s => s.nodes);
   const menuRef = useRef<HTMLDivElement>(null);
 
