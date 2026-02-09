@@ -150,7 +150,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ja">
+    <html lang="ja" className="dark">
       <head>
         <title>LacisProxyGateway2</title>
         <meta name="description" content="Reverse Proxy Gateway Management" />

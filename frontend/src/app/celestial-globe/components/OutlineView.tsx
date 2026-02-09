@@ -1,31 +1,10 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import {
-  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
-  ChevronRight, ChevronDown, Search, AlertTriangle,
-  type LucideIcon,
-} from 'lucide-react';
+import { NetworkDeviceIcon } from './icons';
 import { useTopologyStore } from '../stores/useTopologyStore';
-import type { TopologyNodeV2, NodeType } from '../types';
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  Cloud, Globe, GitBranch, Wifi, Monitor, Shield, Box, HardDrive, Server,
-};
-
-const ICON_FOR_TYPE: Record<NodeType, string> = {
-  internet: 'Cloud',
-  controller: 'Globe',
-  gateway: 'Globe',
-  router: 'Globe',
-  switch: 'GitBranch',
-  ap: 'Wifi',
-  client: 'Monitor',
-  wg_peer: 'Shield',
-  logic_device: 'Box',
-  external: 'HardDrive',
-  lpg_server: 'Server',
-};
+import type { TopologyNodeV2 } from '../types';
+import { resolveComputedStatus, getStatusColor } from './deviceNode/helpers';
 
 interface TreeNode {
   node: TopologyNodeV2;
@@ -74,14 +53,12 @@ export function OutlineView() {
   const nodes = useTopologyStore(s => s.nodes);
   const selectedNodeId = useTopologyStore(s => s.selectedNodeId);
   const setSelectedNodeId = useTopologyStore(s => s.setSelectedNodeId);
-  const toggleCollapse = useTopologyStore(s => s.toggleCollapse);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const tree = useMemo(() => buildTree(nodes), [nodes]);
   const filteredTree = useMemo(() => filterTree(tree, searchQuery), [tree, searchQuery]);
 
-  // Statistics
   const stats = useMemo(() => {
     const online = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
     const offline = nodes.filter(n => n.status === 'offline' || n.status === 'inactive').length;
@@ -89,7 +66,6 @@ export function OutlineView() {
     return { total, online, offline };
   }, [nodes]);
 
-  // Auto-expand all on search
   useMemo(() => {
     if (searchQuery) {
       const allIds = new Set(nodes.map(n => n.id));
@@ -107,46 +83,32 @@ export function OutlineView() {
   }, []);
 
   return (
-    <div className="cg-glass-card" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="cg-glass-card w-full h-full flex flex-col overflow-hidden">
       {/* Search */}
-      <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(51,51,51,0.5)' }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: 8, top: 7, color: '#6B7280' }} />
+      <div className="px-2.5 py-2 border-b border-dark-300/50">
+        <div className="relative">
+          <svg className="absolute left-2 top-1.5 w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search nodes..."
-            style={{
-              width: '100%',
-              padding: '5px 8px 5px 28px',
-              fontSize: 12,
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(51,51,51,0.5)',
-              borderRadius: 6,
-              color: '#E5E7EB',
-              outline: 'none',
-            }}
+            className="w-full py-1.5 pl-7 pr-2 text-xs bg-white/5 border border-dark-300/50 rounded-md text-gray-200 outline-none focus:border-primary-500/50"
           />
         </div>
       </div>
 
       {/* Stats bar */}
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        padding: '6px 12px',
-        borderBottom: '1px solid rgba(51,51,51,0.5)',
-        fontSize: 10,
-        color: '#6B7280',
-      }}>
+      <div className="flex gap-2 px-3 py-1.5 border-b border-dark-300/50 text-[10px] text-gray-500">
         <span>{stats.total} nodes</span>
-        <span style={{ color: '#10B981' }}>{stats.online} online</span>
-        <span style={{ color: '#EF4444' }}>{stats.offline} offline</span>
+        <span className="text-emerald-500">{stats.online} online</span>
+        <span className="text-red-500">{stats.offline} offline</span>
       </div>
 
       {/* Tree */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '4px 4px' }}>
+      <div className="flex-1 overflow-auto px-1 py-1">
         {filteredTree.map(tn => (
           <TreeItem
             key={tn.node.id}
@@ -182,12 +144,10 @@ function TreeItem({
   const hasChildren = children.length > 0;
   const isExpanded = expandedIds.has(node.id);
   const isSelected = node.id === selectedId;
-  // Orphan: has parent_id but parent not visible (rendered as root)
   const isOrphan = depth === 0 && !!node.parent_id && node.node_type !== 'internet';
 
-  const nodeType = node.node_type as NodeType;
-  const iconName = ICON_FOR_TYPE[nodeType] || 'Monitor';
-  const IconComponent = ICON_MAP[iconName] || Monitor;
+  const computedStatus = resolveComputedStatus(node);
+  const statusColor = getStatusColor(computedStatus, true);
 
   return (
     <div>
@@ -199,23 +159,35 @@ function TreeItem({
         {hasChildren ? (
           <button
             onClick={e => { e.stopPropagation(); onToggleExpand(node.id); }}
-            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: '#6B7280', display: 'flex' }}
+            className="border-none bg-none p-0 cursor-pointer text-gray-500 flex"
           >
-            {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isExpanded ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              )}
+            </svg>
           </button>
         ) : (
-          <span style={{ width: 12 }} />
+          <span className="w-3" />
         )}
-        <IconComponent size={12} style={{ color: '#9CA3AF', flexShrink: 0 }} />
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <NetworkDeviceIcon type={node.node_type} className="w-3 h-3 text-gray-400 flex-shrink-0" />
+        <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
           {node.label}
         </span>
         {isOrphan && (
-          <span title="Orphan node (parent not visible)" style={{ display: 'flex', flexShrink: 0 }}>
-            <AlertTriangle size={10} style={{ color: '#F59E0B' }} />
+          <span title="Orphan node (parent not visible)" className="flex flex-shrink-0">
+            <svg className="w-2.5 h-2.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
           </span>
         )}
-        <span className={`cg-status-dot cg-status-dot--${node.status}`} />
+        {/* Status dot with computed color */}
+        <span
+          className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+          style={{ backgroundColor: statusColor }}
+        />
       </div>
       {hasChildren && isExpanded && (
         <div>

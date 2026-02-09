@@ -274,17 +274,20 @@ function MindMapCanvasInner({ onAddLogicDevice }: MindMapCanvasInnerProps) {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
-  // mobes2.0 準拠: MiniMap ノード色関数
+  // mobes2.0 準拠: MiniMap ノード色関数 (getStatusColor互換)
   const getNodeColor = useCallback((n: Node): string => {
     if (n.type === 'internet') return '#3B82F6';
 
     const data = n.data as DeviceNodeData | undefined;
     if (!data?.node) return '#333';
     const st = data.node.state_type;
-    if (st === 'online' || st === 'StaticOnline') return '#10B981';
-    if (st === 'offline') return '#EF4444';
-    if (st === 'StaticOffline') return '#9CA3AF';
-    return '#9CA3AF';
+    const source = data.node.source;
+    if (st === 'StaticOnline') return '#eab308'; // yellow (static)
+    if (st === 'StaticOffline') return '#1f2937'; // dark (static offline)
+    if (source === 'manual' && (st === 'online' || st === 'active')) return '#10b981'; // emerald (manual)
+    if (st === 'online' || st === 'active') return '#3b82f6'; // blue (live online)
+    if (st === 'offline' || st === 'inactive') return '#6b7280'; // gray
+    return '#6b7280';
   }, []);
 
   return (

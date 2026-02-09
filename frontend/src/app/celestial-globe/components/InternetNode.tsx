@@ -1,57 +1,47 @@
 'use client';
 
 /**
- * InternetNode Component
- *
- * ReactFlow カスタムノード — インターネット接続点
- * SSOT: mobes2.0 InternetNode.tsx を LPG2 ダークテーマ向けに移植
- *
- * 重要な設計制約:
- *   - Handle type="source" (Position.Bottom) のみを持つ
- *   - Handle type="target" は存在しない
- *   → エッジの逆進（子ノード → InternetNode）を ReactFlow の構造レベルで禁止
- *   → Internet は常にトポロジーツリーのルートであり、親を持たない
+ * InternetNode Component — mobes2.0 準拠 Tailwind CSS 化
  *
  * mobes2.0 仕様:
- *   - Cloud アイコン、中央配置
- *   - 背景: #E3F2FD（mobes2.0） → rgba(37, 99, 235, 0.15)（LPG2 dark）
- *   - ボーダー: #2196F3（mobes2.0） → #3B82F6（LPG2 blue-500）
- *   - Handle サイズ: 10x10（mobes2.0 準拠、DeviceNode の 8x8 より大きい）
+ *   - Cloud SVGアイコン、中央配置
+ *   - bg-gradient-to-br from-indigo-100 ... dark:from-indigo-950/60
+ *   - border-2 border-indigo-400 ring-1 ring-indigo-200/70
+ *   - Handle source (Position.Right) のみ — 逆進禁止
  */
 
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
-import { Cloud } from 'lucide-react';
+import { NetworkDeviceIcon } from './icons';
 import type { InternetNodeData } from '../types';
 
 function InternetNodeComponent({ data, selected }: NodeProps<InternetNodeData>) {
+  const selectionClass = selected
+    ? 'mindmap-selection-pulse-strong border-2 border-primary-500 ring-2 ring-primary-200 dark:ring-primary-900'
+    : 'border-2 border-indigo-400 ring-1 ring-indigo-200/70 shadow-[0_0_18px_rgba(99,102,241,0.35)]';
+
   return (
     <div
-      style={{
-        padding: 16,
-        borderRadius: 8,
-        backgroundColor: 'rgba(37, 99, 235, 0.15)',
-        border: `2px solid ${selected ? '#60A5FA' : '#3B82F6'}`,
-        minWidth: 120,
-        textAlign: 'center',
-        boxShadow: selected ? '0 0 16px rgba(59, 130, 246, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
-        transition: 'all 0.2s ease',
-        cursor: 'pointer',
-      }}
+      className={`
+        relative rounded-lg p-4 min-w-[120px] text-center transition-all cursor-pointer
+        bg-gradient-to-br from-indigo-100 via-white to-indigo-50
+        dark:from-indigo-950/60 dark:via-indigo-900/30 dark:to-indigo-800/40
+        ${selectionClass}
+      `}
     >
       {/* Cloud Icon */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-        <Cloud size={40} style={{ color: '#3B82F6' }} />
+      <div className="flex items-center justify-center mb-2">
+        <NetworkDeviceIcon type="internet" className="w-10 h-10 text-blue-500" />
       </div>
 
       {/* Label */}
-      <div style={{ fontWeight: 600, fontSize: 14, color: '#E5E7EB' }}>
+      <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
         {data.label || 'Internet'}
       </div>
 
       {/* IP */}
       {data.ip && (
-        <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>
+        <div className="font-mono text-xs text-gray-500 dark:text-gray-400 mt-1">
           {data.ip}
         </div>
       )}
@@ -60,7 +50,7 @@ function InternetNodeComponent({ data, selected }: NodeProps<InternetNodeData>) 
       <Handle
         type="source"
         position={Position.Right}
-        style={{ background: '#3B82F6', width: 10, height: 10 }}
+        className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white dark:!border-dark-100"
       />
     </div>
   );
